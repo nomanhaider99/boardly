@@ -162,9 +162,9 @@ export async function reorderCards(
   const payload: CardsUpdatedPayload = {
     lists: [{ listId, cardIds: orderedIds }],
   };
-  await pusherServer.trigger(boardChannel(boardId), CARDS_UPDATED, payload, {
-    socket_id: socketId,
-  });
+  pusherServer
+    .trigger(boardChannel(boardId), CARDS_UPDATED, payload, socketId ? { socket_id: socketId } : undefined)
+    .catch(() => {});
 
   return { success: true };
 }
@@ -203,9 +203,9 @@ export async function moveCrossListCard(
       { listId: toListId, cardIds: toListCardIds },
     ],
   };
-  await pusherServer.trigger(boardChannel(boardId), CARDS_UPDATED, payload, {
-    socket_id: socketId,
-  });
+  pusherServer
+    .trigger(boardChannel(boardId), CARDS_UPDATED, payload, socketId ? { socket_id: socketId } : undefined)
+    .catch(() => {});
 
   return { success: true };
 }

@@ -62,14 +62,18 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
     if (activeCardIdRef.current) return;
 
     setCardsByList((prev) => {
+      // Build a global lookup so cross-list moves can find the moved card
+      // (it lives in the source list on this client, not the target list yet)
+      const allCards = Object.fromEntries(
+        Object.values(prev).flat().map((c) => [c.id, c])
+      );
+
       const next = { ...prev };
       for (const { listId, cardIds } of payload.lists) {
-        const existing = prev[listId] ?? [];
-        // Re-order existing card objects to match the incoming order
-        const byId = Object.fromEntries(existing.map((c) => [c.id, c]));
         next[listId] = cardIds
-          .map((id) => byId[id])
-          .filter((c): c is Card => !!c);
+          .map((id) => allCards[id])
+          .filter((c): c is Card => !!c)
+          .map((c) => ({ ...c, listId })); // update listId for any moved cards
       }
       return next;
     });
