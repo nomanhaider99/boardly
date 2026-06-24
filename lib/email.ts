@@ -1,4 +1,9 @@
 import nodemailer from "nodemailer";
+import React from "react";
+import { render } from "@react-email/render";
+import { VerifyEmail } from "@/emails/verify-email";
+import { ResetPasswordEmail } from "@/emails/reset-password";
+import { WorkspaceInviteEmail } from "@/emails/workspace-invite";
 
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
@@ -18,20 +23,12 @@ export async function sendVerificationEmail(
   token: string
 ): Promise<void> {
   const url = `${appUrl}/verify-email?token=${token}`;
+  const html = await render(React.createElement(VerifyEmail, { url }));
   await transporter.sendMail({
     from,
     to,
     subject: "Verify your Boardly account",
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2 style="color:#22c55e">Welcome to Boardly!</h2>
-        <p>Click the button below to verify your email address. This link expires in 24 hours.</p>
-        <a href="${url}" style="display:inline-block;background:#22c55e;color:#000;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">
-          Verify Email
-        </a>
-        <p style="color:#888;font-size:13px">Or copy this link: ${url}</p>
-      </div>
-    `,
+    html,
   });
 }
 
@@ -42,21 +39,14 @@ export async function sendWorkspaceInviteEmail(
   inviterName: string
 ): Promise<void> {
   const url = `${appUrl}/accept-invite?token=${token}`;
+  const html = await render(
+    React.createElement(WorkspaceInviteEmail, { url, workspaceName, inviterName })
+  );
   await transporter.sendMail({
     from,
     to,
     subject: `${inviterName} invited you to ${workspaceName} on Boardly`,
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2 style="color:#22c55e">You've been invited!</h2>
-        <p><strong>${inviterName}</strong> has invited you to join the <strong>${workspaceName}</strong> workspace on Boardly.</p>
-        <a href="${url}" style="display:inline-block;background:#22c55e;color:#000;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">
-          Accept Invite
-        </a>
-        <p style="color:#888;font-size:13px">This invite expires in 7 days. If you weren't expecting this, you can ignore it.</p>
-        <p style="color:#888;font-size:13px">Or copy this link: ${url}</p>
-      </div>
-    `,
+    html,
   });
 }
 
@@ -65,19 +55,11 @@ export async function sendPasswordResetEmail(
   token: string
 ): Promise<void> {
   const url = `${appUrl}/reset-password?token=${token}`;
+  const html = await render(React.createElement(ResetPasswordEmail, { url }));
   await transporter.sendMail({
     from,
     to,
     subject: "Reset your Boardly password",
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2 style="color:#22c55e">Reset your password</h2>
-        <p>Click the button below to set a new password. This link expires in 1 hour.</p>
-        <a href="${url}" style="display:inline-block;background:#22c55e;color:#000;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">
-          Reset Password
-        </a>
-        <p style="color:#888;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
-      </div>
-    `,
+    html,
   });
 }

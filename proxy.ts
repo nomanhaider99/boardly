@@ -5,7 +5,7 @@ const secret = new TextEncoder().encode(
   process.env.JWT_SECRET ?? "dev-secret-change-in-production"
 );
 
-const protectedPrefixes = ["/dashboard", "/workspace", "/board", "/invites"];
+const protectedPrefixes = ["/dashboard", "/workspace", "/board", "/invites", "/profile"];
 const authRoutes = ["/sign-in", "/sign-up", "/forgot-password", "/reset-password"];
 
 export async function proxy(request: NextRequest) {

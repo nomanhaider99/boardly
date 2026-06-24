@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -21,10 +21,12 @@ import {
 import { toast } from "sonner";
 import { LayoutDashboard } from "lucide-react";
 import { reorderLists } from "@/app/actions/list";
-import { reorderCards, moveCard } from "@/app/actions/card";
+import { reorderCards, moveCrossListCard } from "@/app/actions/card";
 import { ListColumn } from "@/components/list-column";
-import { CardDetailSheet } from "@/components/card-detail-sheet";
+import { CardDetailDialog } from "@/components/card-detail-sheet";
 import { AddListInline } from "@/components/add-list-inline";
+import { getPusherClient } from "@/lib/pusher-client";
+import { CARDS_UPDATED, type CardsUpdatedPayload } from "@/lib/pusher-shared";
 import type { List, Card } from "@/db/schema";
 
 export type CardsByList = Record<string, Card[]>;
@@ -43,8 +45,46 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
 
-  // Track which list a dragged card is currently over
+  // Track which list a dragged card started in and is currently over
+  const fromListRef = useRef<string | null>(null);
   const overListRef = useRef<string | null>(null);
+
+  // Stable ref so the Pusher handler always sees the latest state
+  const cardsByListRef = useRef<CardsByList>(cardsByList);
+  useEffect(() => { cardsByListRef.current = cardsByList; }, [cardsByList]);
+
+  const activeCardIdRef = useRef<string | null>(null);
+  useEffect(() => { activeCardIdRef.current = activeCardId; }, [activeCardId]);
+
+  // Apply incoming real-time card updates (from other users)
+  const applyCardsUpdated = useCallback((payload: CardsUpdatedPayload) => {
+    // Don't apply while local user is dragging — would cause a snap
+    if (activeCardIdRef.current) return;
+
+    setCardsByList((prev) => {
+      const next = { ...prev };
+      for (const { listId, cardIds } of payload.lists) {
+        const existing = prev[listId] ?? [];
+        // Re-order existing card objects to match the incoming order
+        const byId = Object.fromEntries(existing.map((c) => [c.id, c]));
+        next[listId] = cardIds
+          .map((id) => byId[id])
+          .filter((c): c is Card => !!c);
+      }
+      return next;
+    });
+  }, []);
+
+  // Pusher subscription
+  useEffect(() => {
+    const pusher = getPusherClient();
+    const channel = pusher.subscribe(`board-${boardId}`);
+    channel.bind(CARDS_UPDATED, applyCardsUpdated);
+    return () => {
+      channel.unbind(CARDS_UPDATED, applyCardsUpdated);
+      pusher.unsubscribe(`board-${boardId}`);
+    };
+  }, [boardId, applyCardsUpdated]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -60,7 +100,10 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
 
   function onDragStart(event: DragStartEvent) {
     const { id, data } = event.active;
-    if (data.current?.type === "card") setActiveCardId(String(id));
+    if (data.current?.type === "card") {
+      setActiveCardId(String(id));
+      fromListRef.current = findCardList(String(id));
+    }
     if (data.current?.type === "list") setActiveListId(String(id));
   }
 
@@ -70,7 +113,6 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
     if (active.data.current?.type !== "card") return;
 
     const overId = String(over.id);
-    // over a list column directly, or over a card inside a list
     const overList =
       over.data.current?.type === "list"
         ? overId
@@ -82,7 +124,7 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
     const activeList = findCardList(String(active.id));
     if (!activeList || activeList === overList) return;
 
-    // Move card to new list optimistically
+    // Optimistic cross-list move in UI
     setCardsByList((prev) => {
       const sourceCards = [...(prev[activeList] ?? [])];
       const card = sourceCards.find((c) => c.id === active.id);
@@ -98,10 +140,17 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
     setActiveCardId(null);
     setActiveListId(null);
 
-    if (!over) return;
+    const dragFromList = fromListRef.current;
+    fromListRef.current = null;
+
+    if (!over) {
+      overListRef.current = null;
+      return;
+    }
 
     // ── List reorder ──
     if (active.data.current?.type === "list") {
+      overListRef.current = null;
       const oldIndex = lists.findIndex((l) => l.id === active.id);
       const newIndex = lists.findIndex((l) => l.id === over.id);
       if (oldIndex === newIndex) return;
@@ -122,6 +171,8 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
       overListRef.current = null;
       if (!targetList) return;
 
+      const socketId = getPusherClient().connection.socket_id;
+
       const listCards = [...(cardsByList[targetList] ?? [])];
       const oldIndex = listCards.findIndex((c) => c.id === active.id);
       const newIndex = listCards.findIndex((c) => c.id === over.id);
@@ -132,10 +183,35 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
         setCardsByList((prev) => ({ ...prev, [targetList]: finalCards }));
       }
 
-      const result = await reorderCards(targetList, finalCards.map((c) => c.id));
-      if (!result.success) {
-        toast.error("Failed to save card order.");
-        setCardsByList(initialCards);
+      const isCrossListMove = dragFromList && dragFromList !== targetList;
+
+      if (isCrossListMove) {
+        // Source list no longer has this card (already removed by onDragOver)
+        const fromCards = cardsByList[dragFromList] ?? [];
+        const result = await moveCrossListCard(
+          String(active.id),
+          dragFromList,
+          targetList,
+          fromCards.map((c) => c.id),
+          finalCards.map((c) => c.id),
+          boardId,
+          socketId
+        );
+        if (!result.success) {
+          toast.error("Failed to move card.");
+          setCardsByList(initialCards);
+        }
+      } else {
+        const result = await reorderCards(
+          targetList,
+          finalCards.map((c) => c.id),
+          boardId,
+          socketId
+        );
+        if (!result.success) {
+          toast.error("Failed to save card order.");
+          setCardsByList(initialCards);
+        }
       }
     }
   }
@@ -239,7 +315,7 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
         </DragOverlay>
       </DndContext>
 
-      <CardDetailSheet
+      <CardDetailDialog
         card={selectedCard}
         currentUserId={currentUserId}
         onClose={() => setSelectedCard(null)}

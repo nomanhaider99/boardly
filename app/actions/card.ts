@@ -5,6 +5,8 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { cards, lists, boards, workspaceMembers } from "@/db/schema";
 import { getSession } from "@/lib/auth";
+import { pusherServer } from "@/lib/pusher-server";
+import { boardChannel, CARDS_UPDATED, type CardsUpdatedPayload } from "@/lib/pusher-shared";
 
 export type CardActionResult =
   | { success: true; cardId?: string }
@@ -69,7 +71,7 @@ export async function createCard(
 
 export async function updateCard(
   cardId: string,
-  data: { title?: string; description?: string; dueDate?: Date | null }
+  data: { title?: string; description?: string; dueDate?: Date | null; bannerUrl?: string | null }
 ): Promise<CardActionResult> {
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
@@ -88,6 +90,7 @@ export async function updateCard(
   if (data.title !== undefined) update.title = data.title;
   if (data.description !== undefined) update.description = data.description;
   if ("dueDate" in data) update.dueDate = data.dueDate ?? undefined;
+  if ("bannerUrl" in data) update.bannerUrl = data.bannerUrl;
 
   await db.update(cards).set(update).where(eq(cards.id, cardId));
   return { success: true };
@@ -140,7 +143,9 @@ export async function moveCard(
 
 export async function reorderCards(
   listId: string,
-  orderedIds: string[]
+  orderedIds: string[],
+  boardId: string,
+  socketId?: string
 ): Promise<CardActionResult> {
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
@@ -153,6 +158,55 @@ export async function reorderCards(
       db.update(cards).set({ position: index }).where(eq(cards.id, id))
     )
   );
+
+  const payload: CardsUpdatedPayload = {
+    lists: [{ listId, cardIds: orderedIds }],
+  };
+  await pusherServer.trigger(boardChannel(boardId), CARDS_UPDATED, payload, {
+    socket_id: socketId,
+  });
+
+  return { success: true };
+}
+
+export async function moveCrossListCard(
+  cardId: string,
+  fromListId: string,
+  toListId: string,
+  fromListCardIds: string[],
+  toListCardIds: string[],
+  boardId: string,
+  socketId?: string
+): Promise<CardActionResult> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const member = await assertListMember(toListId, session.userId);
+  if (!member) return { success: false, error: "Not authorized." };
+
+  // Update listId for the moved card
+  await db.update(cards).set({ listId: toListId }).where(eq(cards.id, cardId));
+
+  // Persist positions for both affected lists
+  await Promise.all([
+    ...fromListCardIds.map((id, index) =>
+      db.update(cards).set({ position: index }).where(eq(cards.id, id))
+    ),
+    ...toListCardIds.map((id, index) =>
+      db.update(cards).set({ position: index }).where(eq(cards.id, id))
+    ),
+  ]);
+
+  const payload: CardsUpdatedPayload = {
+    lists: [
+      { listId: fromListId, cardIds: fromListCardIds },
+      { listId: toListId, cardIds: toListCardIds },
+    ],
+  };
+  await pusherServer.trigger(boardChannel(boardId), CARDS_UPDATED, payload, {
+    socket_id: socketId,
+  });
+
   return { success: true };
 }
 

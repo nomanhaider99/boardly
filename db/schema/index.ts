@@ -15,6 +15,10 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   emailVerified: boolean("email_verified").notNull().default(false),
+  avatarUrl: text("avatar_url"),
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+  twoFactorSecret: text("two_factor_secret"),
+  twoFactorBackupCodes: text("two_factor_backup_codes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -63,6 +67,7 @@ export const workspaceMembers = pgTable("workspace_members", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   role: workspaceMemberRoleEnum("role").notNull().default("member"),
+  roleLabel: text("role_label"),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
 });
 
@@ -114,6 +119,7 @@ export const cards = pgTable("cards", {
   description: text("description"),
   position: integer("position").notNull().default(0),
   dueDate: timestamp("due_date"),
+  bannerUrl: text("banner_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -127,6 +133,15 @@ export const comments = pgTable("comments", {
     .references(() => users.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const commentMentions = pgTable("comment_mentions", {
+  commentId: uuid("comment_id")
+    .notNull()
+    .references(() => comments.id, { onDelete: "cascade" }),
+  mentionedUserId: uuid("mentioned_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
 });
 
 export const attachments = pgTable("attachments", {
@@ -153,4 +168,5 @@ export type Board = typeof boards.$inferSelect;
 export type List = typeof lists.$inferSelect;
 export type Card = typeof cards.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
+export type CommentMention = typeof commentMentions.$inferSelect;
 export type Attachment = typeof attachments.$inferSelect;

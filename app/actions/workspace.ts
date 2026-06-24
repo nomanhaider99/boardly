@@ -83,6 +83,7 @@ export async function getUserWorkspaces(): Promise<WorkspaceWithRole[]> {
 export type WorkspaceMemberWithUser = {
   userId: string;
   role: "owner" | "member";
+  roleLabel: string | null;
   joinedAt: Date;
   firstName: string;
   lastName: string;
@@ -118,6 +119,7 @@ export async function getWorkspaceDetail(
     .select({
       userId: workspaceMembers.userId,
       role: workspaceMembers.role,
+      roleLabel: workspaceMembers.roleLabel,
       joinedAt: workspaceMembers.joinedAt,
       firstName: users.firstName,
       lastName: users.lastName,
@@ -135,4 +137,45 @@ export async function getWorkspaceDetail(
     members: memberRows as WorkspaceMemberWithUser[],
     currentUserRole: currentMember.role as "owner" | "member",
   };
+}
+
+export async function setMemberRoleLabel(
+  workspaceId: string,
+  targetUserId: string,
+  roleLabel: string | null
+): Promise<{ success: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const [caller] = await db
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, session.userId)
+      )
+    )
+    .limit(1);
+
+  if (!caller || caller.role !== "owner") {
+    return { success: false, error: "Only workspace owners can assign role labels." };
+  }
+
+  const trimmed = roleLabel?.trim() ?? null;
+  if (trimmed && trimmed.length > 50) {
+    return { success: false, error: "Role label must be 50 characters or fewer." };
+  }
+
+  await db
+    .update(workspaceMembers)
+    .set({ roleLabel: trimmed || null })
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, targetUserId)
+      )
+    );
+
+  return { success: true };
 }

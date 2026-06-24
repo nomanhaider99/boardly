@@ -2,6 +2,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 
 const SESSION_COOKIE = "boardly_session";
+const PENDING_2FA_COOKIE = "boardly_2fa_pending";
 const secret = new TextEncoder().encode(
   process.env.JWT_SECRET ?? "dev-secret-change-in-production"
 );
@@ -63,6 +64,41 @@ export async function createResetToken(userId: string): Promise<string> {
     .setIssuedAt()
     .setExpirationTime("1h")
     .sign(secret);
+}
+
+export async function create2FAPendingSession(userId: string, email: string): Promise<void> {
+  const token = await new SignJWT({ userId, email, purpose: "2fa-pending" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(secret);
+
+  const cookieStore = await cookies();
+  cookieStore.set(PENDING_2FA_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 5 * 60,
+  });
+}
+
+export async function get2FAPendingSession(): Promise<SessionPayload | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(PENDING_2FA_COOKIE)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    if (payload.purpose !== "2fa-pending") return null;
+    return { userId: payload.userId as string, email: payload.email as string };
+  } catch {
+    return null;
+  }
+}
+
+export async function delete2FAPendingSession(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(PENDING_2FA_COOKIE);
 }
 
 export async function verifyEmailToken(

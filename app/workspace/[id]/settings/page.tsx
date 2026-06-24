@@ -4,6 +4,7 @@ import { getWorkspaceDetail } from "@/app/actions/workspace";
 import { getWorkspaceSentInvites } from "@/app/actions/invite";
 import { getSession } from "@/lib/auth";
 import { InviteForm } from "@/components/invite-form";
+import { MemberRoleLabelEditor } from "@/components/member-role-label-editor";
 
 function MemberAvatar({ name }: { name: string }) {
   return (
@@ -73,7 +74,7 @@ export default async function WorkspaceSettingsPage({
 
         <div className="rounded-2xl border border-border/50 bg-card divide-y divide-border/40 overflow-hidden">
           {workspace.members.map((member) => (
-            <div key={member.userId} className="flex items-center gap-3 px-4 py-3">
+            <div key={member.userId} className="group/member flex items-center gap-3 px-4 py-3">
               <MemberAvatar name={member.firstName} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">
@@ -83,6 +84,12 @@ export default async function WorkspaceSettingsPage({
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                <MemberRoleLabelEditor
+                  workspaceId={id}
+                  targetUserId={member.userId}
+                  initialRoleLabel={member.roleLabel}
+                  isOwner={workspace.currentUserRole === "owner"}
+                />
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {member.role === "owner" ? (

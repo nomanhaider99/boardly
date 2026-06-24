@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
+import { verifySync } from "otplib";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users, verificationTokens, passwordResetTokens } from "@/db/schema";
@@ -13,6 +14,9 @@ import {
   createResetToken,
   verifyEmailToken,
   verifyResetToken,
+  create2FAPendingSession,
+  get2FAPendingSession,
+  delete2FAPendingSession,
 } from "@/lib/auth";
 import { sendVerificationEmail, sendPasswordResetEmail } from "@/lib/email";
 
@@ -114,6 +118,11 @@ export async function signIn(formData: FormData): Promise<ActionResult> {
       success: false,
       error: "Please verify your email before signing in.",
     };
+  }
+
+  if (user.twoFactorEnabled && user.twoFactorSecret) {
+    await create2FAPendingSession(user.id, user.email);
+    redirect("/2fa");
   }
 
   await createSession({ userId: user.id, email: user.email });
@@ -219,4 +228,46 @@ export async function resetPassword(
     .where(eq(passwordResetTokens.token, token));
 
   return { success: true };
+}
+
+export async function verify2FALogin(code: string): Promise<ActionResult> {
+  const pending = await get2FAPendingSession();
+  if (!pending) return { success: false, error: "Session expired. Please sign in again." };
+
+  const [user] = await db
+    .select({
+      twoFactorSecret: users.twoFactorSecret,
+      twoFactorBackupCodes: users.twoFactorBackupCodes,
+    })
+    .from(users)
+    .where(eq(users.id, pending.userId))
+    .limit(1);
+
+  if (!user?.twoFactorSecret) return { success: false, error: "2FA not configured." };
+
+  const isTOTP = verifySync({ secret: user.twoFactorSecret, token: code }).valid;
+
+  let isBackup = false;
+  if (!isTOTP && user.twoFactorBackupCodes) {
+    const stored = JSON.parse(user.twoFactorBackupCodes) as string[];
+    for (const hashed of stored) {
+      if (await verifyPassword(code, hashed)) {
+        isBackup = true;
+        const remaining = stored.filter((h) => h !== hashed);
+        await db
+          .update(users)
+          .set({ twoFactorBackupCodes: JSON.stringify(remaining) })
+          .where(eq(users.id, pending.userId));
+        break;
+      }
+    }
+  }
+
+  if (!isTOTP && !isBackup) {
+    return { success: false, error: "Invalid code. Please try again." };
+  }
+
+  await delete2FAPendingSession();
+  await createSession({ userId: pending.userId, email: pending.email });
+  redirect("/dashboard");
 }

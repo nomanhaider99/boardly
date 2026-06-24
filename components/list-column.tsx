@@ -62,6 +62,7 @@ export function ListColumn({
       description: null,
       position: cards.length,
       dueDate: null,
+      bannerUrl: null,
       createdAt: new Date(),
     };
     onCardAdded(newCard);
