@@ -15,8 +15,6 @@ import type { List, Card } from "@/db/schema";
 interface ListColumnProps {
   list: List;
   cards: Card[];
-  totalCards?: number;
-  isSearchActive?: boolean;
   onCardClick: (card: Card) => void;
   onCardAdded: (card: Card) => void;
   onListDeleted: (listId: string) => void;
@@ -26,8 +24,6 @@ interface ListColumnProps {
 export function ListColumn({
   list,
   cards,
-  totalCards,
-  isSearchActive,
   onCardClick,
   onCardAdded,
   onListDeleted,
@@ -132,11 +128,7 @@ export function ListColumn({
           </button>
         )}
 
-        <span className="text-xs text-muted-foreground shrink-0">
-          {isSearchActive && totalCards !== undefined
-            ? `${cards.length}/${totalCards}`
-            : cards.length}
-        </span>
+        <span className="text-xs text-muted-foreground shrink-0">{cards.length}</span>
 
         <div className="relative">
           <button
@@ -174,7 +166,7 @@ export function ListColumn({
         </SortableContext>
         {cards.length === 0 && !addingCard && (
           <p className="py-3 text-center text-xs text-muted-foreground select-none">
-            {isSearchActive ? "No matches" : "No cards yet"}
+            No cards yet
           </p>
         )}
       </div>

@@ -1,8 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, LayoutDashboard, Settings } from "lucide-react";
+import { ChevronLeft, LayoutDashboard, LogOut, Settings } from "lucide-react";
 import { getWorkspaceDetail } from "@/app/actions/workspace";
 import { getSession } from "@/lib/auth";
+import { signOut } from "@/app/actions/auth";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WorkspaceAvatar } from "@/components/workspace-avatar";
 import { WorkspaceMobileNav } from "@/components/workspace-mobile-nav";
@@ -54,15 +55,26 @@ export default async function WorkspaceLayout({
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-border/40 p-3 flex items-center justify-between">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronLeft className="h-3 w-3" />
-            All workspaces
-          </Link>
-          <ThemeToggle />
+        <div className="border-t border-border/40 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronLeft className="h-3 w-3" />
+              All workspaces
+            </Link>
+            <ThemeToggle />
+          </div>
+          <form action={signOut} className="w-full">
+            <button
+              type="submit"
+              className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+            >
+              <LogOut className="h-3 w-3" />
+              Sign out
+            </button>
+          </form>
         </div>
       </aside>
 

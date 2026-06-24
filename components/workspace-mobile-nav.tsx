@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, X, LayoutDashboard, Settings, ChevronLeft } from "lucide-react";
+import { Menu, X, LayoutDashboard, LogOut, Settings, ChevronLeft } from "lucide-react";
 import { WorkspaceAvatar } from "@/components/workspace-avatar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { signOut } from "@/app/actions/auth";
 
 interface WorkspaceMobileNavProps {
   workspaceId: string;
@@ -88,7 +89,7 @@ export function WorkspaceMobileNav({
           </Link>
         </nav>
 
-        <div className="border-t border-border/40 p-3">
+        <div className="border-t border-border/40 p-3 space-y-2">
           <Link
             href="/dashboard"
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -96,6 +97,15 @@ export function WorkspaceMobileNav({
             <ChevronLeft className="h-3 w-3" />
             All workspaces
           </Link>
+          <form action={signOut} className="w-full">
+            <button
+              type="submit"
+              className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+            >
+              <LogOut className="h-3 w-3" />
+              Sign out
+            </button>
+          </form>
         </div>
       </aside>
     </>

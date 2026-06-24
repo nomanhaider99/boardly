@@ -139,4 +139,39 @@
   h1, h2, h3, h4, h5, h6 {
     @apply font-heading;
   }
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  label[for],
+  select:not(:disabled) {
+    @apply cursor-pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  select:disabled {
+    @apply cursor-not-allowed;
+  }
+}
+
+/* Thin rounded scrollbars — all axes, light & dark */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--muted-foreground) 55%, transparent);
 }

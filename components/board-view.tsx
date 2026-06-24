@@ -50,22 +50,26 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(searchQuery), 250);
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // Filtered cards for display (full cardsByList used for DnD / mutations)
-  const displayCardsByList = useMemo<CardsByList>(() => {
+  // Dropdown card search results (flat list, not board filter)
+  const searchResults = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
-    if (!q) return cardsByList;
-    return Object.fromEntries(
-      Object.entries(cardsByList).map(([listId, cards]) => [
-        listId,
-        cards.filter((c) => c.title.toLowerCase().includes(q)),
-      ])
-    );
-  }, [cardsByList, debouncedQuery]);
+    if (!q) return [];
+    const results: Array<{ card: Card; listTitle: string }> = [];
+    for (const list of lists) {
+      for (const card of cardsByList[list.id] ?? []) {
+        if (card.title.toLowerCase().includes(q)) {
+          results.push({ card, listTitle: list.title });
+        }
+      }
+    }
+    return results.slice(0, 10);
+  }, [cardsByList, lists, debouncedQuery]);
 
   // Track which list a dragged card started in and is currently over
   const fromListRef = useRef<string | null>(null);
@@ -283,22 +287,24 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
     ? Object.values(cardsByList).flat().find((c) => c.id === activeCardId)
     : null;
 
-  const isSearching = debouncedQuery.trim().length > 0;
-
   return (
     <div className="flex flex-col h-full">
-      {/* Top bar — Members button + search */}
-      {lists.length > 0 && (
-        <div className="shrink-0 flex items-center justify-between pb-3">
+      {/* Top bar — Members button + centered search */}
+      <div className="shrink-0 flex items-center pb-3">
+        <div className="flex-1">
           <BoardMembersPanel boardId={boardId} isOwner={isOwner} />
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+        </div>
+        {lists.length > 0 && (
+          <div className="relative w-96">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none z-10" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setDropdownOpen(true)}
+              onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
               placeholder="Search cards…"
-              className="h-8 w-52 rounded-lg border border-input bg-background pl-8 pr-7 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-colors"
+              className="w-full h-9 rounded-lg border border-input bg-background pl-8 pr-7 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-colors"
             />
             {searchQuery && (
               <button
@@ -309,9 +315,29 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
+            {dropdownOpen && searchResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 z-30 rounded-lg border border-border bg-popover shadow-lg overflow-hidden max-h-72 overflow-y-auto">
+                {searchResults.map(({ card, listTitle }) => (
+                  <button
+                    key={card.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setSelectedCard(card);
+                      setSearchQuery("");
+                      setDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover:bg-muted/60 transition-colors text-left"
+                  >
+                    <span className="truncate font-medium">{card.title}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{listTitle}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
+        <div className="flex-1" />
+      </div>
 
       {/* Board content */}
       <div className="flex-1 min-h-0">
@@ -340,9 +366,7 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
                   <ListColumn
                     key={list.id}
                     list={list}
-                    cards={displayCardsByList[list.id] ?? []}
-                    totalCards={cardsByList[list.id]?.length ?? 0}
-                    isSearchActive={isSearching}
+                    cards={cardsByList[list.id] ?? []}
                     onCardClick={setSelectedCard}
                     onCardAdded={(card) => onCardAdded(list.id, card)}
                     onListDeleted={onListDeleted}
@@ -366,6 +390,7 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
 
       <CardDetailDialog
         card={selectedCard}
+        boardId={boardId}
         currentUserId={currentUserId}
         onClose={() => setSelectedCard(null)}
         onDeleted={onCardDeleted}

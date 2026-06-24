@@ -33,6 +33,7 @@ interface CardCommentsProps {
   currentUserId: string;
   initialComments: CommentWithUser[];
   workspaceMembers: MemberForMention[];
+  boardLabelMap?: Record<string, string>;
 }
 
 export function CardComments({
@@ -40,6 +41,7 @@ export function CardComments({
   currentUserId,
   initialComments,
   workspaceMembers,
+  boardLabelMap,
 }: CardCommentsProps) {
   const [commentList, setCommentList] = useState<CommentWithUser[]>(initialComments);
   const [body, setBody] = useState("");
@@ -84,7 +86,8 @@ export function CardComments({
     const cursorPos = textareaRef.current.selectionStart ?? body.length;
     const before = body.slice(0, mentionState.atIndex);
     const after = body.slice(cursorPos);
-    const insertion = `@${member.firstName} `;
+    const mentionName = boardLabelMap?.[member.userId] ?? member.firstName;
+    const insertion = `@${mentionName} `;
     setBody(before + insertion + after);
     setMentionedIds((prev) => new Set([...prev, member.userId]));
     setMentionState(null);
@@ -184,9 +187,9 @@ export function CardComments({
                   }`}
                 >
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
-                    {m.firstName.charAt(0).toUpperCase()}
+                    {(boardLabelMap?.[m.userId] ?? m.firstName).charAt(0).toUpperCase()}
                   </span>
-                  <span>{m.firstName} {m.lastName}</span>
+                  <span>{boardLabelMap?.[m.userId] ?? `${m.firstName} ${m.lastName}`}</span>
                 </button>
               ))}
             </div>
@@ -223,7 +226,7 @@ export function CardComments({
               <div className="flex-1 min-w-0 space-y-0.5">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold">
-                    {comment.firstName} {comment.lastName}
+                    {boardLabelMap?.[comment.userId] ?? `${comment.firstName} ${comment.lastName}`.trim()}
                   </span>
                   <span className="text-[10px] text-muted-foreground">
                     {timeAgo(comment.createdAt)}
