@@ -176,7 +176,7 @@ export function CardComments({
         <div className="relative">
           {/* Mention dropdown */}
           {mentionState !== null && filteredMembers.length > 0 && (
-            <div className="absolute bottom-full left-0 right-0 mb-1 z-10 rounded-lg border border-border bg-popover shadow-lg overflow-hidden">
+            <div className="absolute top-full left-0 right-0 mt-1 z-10 rounded-lg border border-border bg-popover shadow-lg overflow-hidden">
               {filteredMembers.map((m, i) => (
                 <button
                   key={m.userId}

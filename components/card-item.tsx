@@ -39,7 +39,7 @@ export function CardItem({ card, listId, onClick }: CardItemProps) {
       className="group rounded-lg border border-border/50 bg-background cursor-pointer hover:border-primary/40 hover:shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 overflow-hidden"
     >
       {card.bannerUrl && (
-        <div className="relative h-12 w-full">
+        <div className="relative h-40 w-full">
           <Image
             src={card.bannerUrl}
             alt=""
