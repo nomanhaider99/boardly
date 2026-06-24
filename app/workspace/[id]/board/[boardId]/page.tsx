@@ -63,6 +63,7 @@ export default async function BoardPage({
         <BoardView
           boardId={boardId}
           currentUserId={session.userId}
+          isOwner={workspace.currentUserRole === "owner"}
           initialLists={boardLists as List[]}
           initialCards={cardsByList}
         />

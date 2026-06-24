@@ -19,9 +19,9 @@ function renderBody(text: string) {
   const parts = text.split(/(@[A-Za-z]\w*)/g);
   return parts.map((part, i) =>
     /^@[A-Za-z]\w*$/.test(part) ? (
-      <a key={i} href="#" className="font-semibold text-primary hover:underline">
+      <span key={i} className="inline-flex items-center bg-primary/15 text-primary font-semibold px-1.5 py-0.5 rounded-md text-[0.85em] hover:bg-primary/25 transition-colors cursor-default">
         {part}
-      </a>
+      </span>
     ) : (
       <span key={i}>{part}</span>
     )

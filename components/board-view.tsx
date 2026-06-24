@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -19,12 +19,13 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { toast } from "sonner";
-import { LayoutDashboard } from "lucide-react";
+import { LayoutDashboard, Search, X } from "lucide-react";
 import { reorderLists } from "@/app/actions/list";
 import { reorderCards, moveCrossListCard } from "@/app/actions/card";
 import { ListColumn } from "@/components/list-column";
 import { CardDetailDialog } from "@/components/card-detail-sheet";
 import { AddListInline } from "@/components/add-list-inline";
+import { BoardMembersPanel } from "@/components/board-members-panel";
 import { getPusherClient } from "@/lib/pusher-client";
 import { CARDS_UPDATED, type CardsUpdatedPayload } from "@/lib/pusher-shared";
 import type { List, Card } from "@/db/schema";
@@ -34,46 +35,59 @@ export type CardsByList = Record<string, Card[]>;
 interface BoardViewProps {
   boardId: string;
   currentUserId: string;
+  isOwner: boolean;
   initialLists: List[];
   initialCards: CardsByList;
 }
 
-export function BoardView({ boardId, currentUserId, initialLists, initialCards }: BoardViewProps) {
+export function BoardView({ boardId, currentUserId, isOwner, initialLists, initialCards }: BoardViewProps) {
   const [lists, setLists] = useState<List[]>(initialLists);
   const [cardsByList, setCardsByList] = useState<CardsByList>(initialCards);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery), 250);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // Filtered cards for display (full cardsByList used for DnD / mutations)
+  const displayCardsByList = useMemo<CardsByList>(() => {
+    const q = debouncedQuery.trim().toLowerCase();
+    if (!q) return cardsByList;
+    return Object.fromEntries(
+      Object.entries(cardsByList).map(([listId, cards]) => [
+        listId,
+        cards.filter((c) => c.title.toLowerCase().includes(q)),
+      ])
+    );
+  }, [cardsByList, debouncedQuery]);
+
   // Track which list a dragged card started in and is currently over
   const fromListRef = useRef<string | null>(null);
   const overListRef = useRef<string | null>(null);
-
-  // Stable ref so the Pusher handler always sees the latest state
-  const cardsByListRef = useRef<CardsByList>(cardsByList);
-  useEffect(() => { cardsByListRef.current = cardsByList; }, [cardsByList]);
 
   const activeCardIdRef = useRef<string | null>(null);
   useEffect(() => { activeCardIdRef.current = activeCardId; }, [activeCardId]);
 
   // Apply incoming real-time card updates (from other users)
   const applyCardsUpdated = useCallback((payload: CardsUpdatedPayload) => {
-    // Don't apply while local user is dragging — would cause a snap
     if (activeCardIdRef.current) return;
 
     setCardsByList((prev) => {
-      // Build a global lookup so cross-list moves can find the moved card
-      // (it lives in the source list on this client, not the target list yet)
       const allCards = Object.fromEntries(
         Object.values(prev).flat().map((c) => [c.id, c])
       );
-
       const next = { ...prev };
       for (const { listId, cardIds } of payload.lists) {
         next[listId] = cardIds
           .map((id) => allCards[id])
           .filter((c): c is Card => !!c)
-          .map((c) => ({ ...c, listId })); // update listId for any moved cards
+          .map((c) => ({ ...c, listId }));
       }
       return next;
     });
@@ -128,7 +142,6 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
     const activeList = findCardList(String(active.id));
     if (!activeList || activeList === overList) return;
 
-    // Optimistic cross-list move in UI
     setCardsByList((prev) => {
       const sourceCards = [...(prev[activeList] ?? [])];
       const card = sourceCards.find((c) => c.id === active.id);
@@ -190,7 +203,6 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
       const isCrossListMove = dragFromList && dragFromList !== targetList;
 
       if (isCrossListMove) {
-        // Source list no longer has this card (already removed by onDragOver)
         const fromCards = cardsByList[dragFromList] ?? [];
         const result = await moveCrossListCard(
           String(active.id),
@@ -271,53 +283,86 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
     ? Object.values(cardsByList).flat().find((c) => c.id === activeCardId)
     : null;
 
-  return (
-    <>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={onDragStart}
-        onDragOver={onDragOver}
-        onDragEnd={onDragEnd}
-      >
-        <SortableContext items={lists.map((l) => l.id)} strategy={horizontalListSortingStrategy}>
-          {lists.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-4">
-                <LayoutDashboard className="h-7 w-7" />
-              </div>
-              <h3 className="font-heading font-semibold text-lg mb-1">No lists yet</h3>
-              <p className="text-muted-foreground text-sm mb-6 max-w-xs">
-                Add your first list to start organising cards on this board.
-              </p>
-              <AddListInline boardId={boardId} onListAdded={onListAdded} />
-            </div>
-          ) : (
-            <div className="flex gap-3 items-start h-full overflow-x-auto pb-4 px-1">
-              {lists.map((list) => (
-                <ListColumn
-                  key={list.id}
-                  list={list}
-                  cards={cardsByList[list.id] ?? []}
-                  onCardClick={setSelectedCard}
-                  onCardAdded={(card) => onCardAdded(list.id, card)}
-                  onListDeleted={onListDeleted}
-                  onListRenamed={onListRenamed}
-                />
-              ))}
-              <AddListInline boardId={boardId} onListAdded={onListAdded} />
-            </div>
-          )}
-        </SortableContext>
+  const isSearching = debouncedQuery.trim().length > 0;
 
-        <DragOverlay>
-          {activeCard && (
-            <div className="rotate-1 rounded-lg border border-primary/40 bg-card px-3 py-2.5 shadow-xl text-sm font-medium w-56 opacity-90">
-              {activeCard.title}
-            </div>
-          )}
-        </DragOverlay>
-      </DndContext>
+  return (
+    <div className="flex flex-col h-full">
+      {/* Top bar — Members button + search */}
+      {lists.length > 0 && (
+        <div className="shrink-0 flex items-center justify-between pb-3">
+          <BoardMembersPanel boardId={boardId} isOwner={isOwner} />
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search cards…"
+              className="h-8 w-52 rounded-lg border border-input bg-background pl-8 pr-7 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-colors"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Board content */}
+      <div className="flex-1 min-h-0">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDragEnd={onDragEnd}
+        >
+          <SortableContext items={lists.map((l) => l.id)} strategy={horizontalListSortingStrategy}>
+            {lists.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-4">
+                  <LayoutDashboard className="h-7 w-7" />
+                </div>
+                <h3 className="font-heading font-semibold text-lg mb-1">No lists yet</h3>
+                <p className="text-muted-foreground text-sm mb-6 max-w-xs">
+                  Add your first list to start organising cards on this board.
+                </p>
+                <AddListInline boardId={boardId} onListAdded={onListAdded} />
+              </div>
+            ) : (
+              <div className="flex gap-3 items-start h-full overflow-x-auto pb-4 px-1">
+                {lists.map((list) => (
+                  <ListColumn
+                    key={list.id}
+                    list={list}
+                    cards={displayCardsByList[list.id] ?? []}
+                    totalCards={cardsByList[list.id]?.length ?? 0}
+                    isSearchActive={isSearching}
+                    onCardClick={setSelectedCard}
+                    onCardAdded={(card) => onCardAdded(list.id, card)}
+                    onListDeleted={onListDeleted}
+                    onListRenamed={onListRenamed}
+                  />
+                ))}
+                <AddListInline boardId={boardId} onListAdded={onListAdded} />
+              </div>
+            )}
+          </SortableContext>
+
+          <DragOverlay>
+            {activeCard && (
+              <div className="rotate-1 rounded-lg border border-primary/40 bg-card px-3 py-2.5 shadow-xl text-sm font-medium w-56 opacity-90">
+                {activeCard.title}
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
+      </div>
 
       <CardDetailDialog
         card={selectedCard}
@@ -326,6 +371,6 @@ export function BoardView({ boardId, currentUserId, initialLists, initialCards }
         onDeleted={onCardDeleted}
         onUpdated={onCardUpdated}
       />
-    </>
+    </div>
   );
 }

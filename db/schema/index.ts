@@ -3,6 +3,7 @@ import {
   integer,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uuid,
@@ -144,6 +145,20 @@ export const commentMentions = pgTable("comment_mentions", {
     .references(() => users.id, { onDelete: "cascade" }),
 });
 
+export const boardMemberLabels = pgTable(
+  "board_member_labels",
+  {
+    boardId: uuid("board_id")
+      .notNull()
+      .references(() => boards.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.boardId, t.userId] })]
+);
+
 export const attachments = pgTable("attachments", {
   id: uuid("id").primaryKey().defaultRandom(),
   cardId: uuid("card_id")
@@ -159,6 +174,7 @@ export const attachments = pgTable("attachments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export type BoardMemberLabel = typeof boardMemberLabels.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;
