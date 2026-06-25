@@ -29,7 +29,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${dmSans.variable} h-full antialiased`}
+      className={`${dmSans.className} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <ThemeProvider
