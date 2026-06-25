@@ -9,6 +9,13 @@ import { getPendingInviteCount } from "@/app/actions/invite";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
 
+const marketingLinks = [
+  { href: "/features", label: "Features" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/about", label: "About" },
+  { href: "/contact", label: "Contact" },
+];
+
 export async function Navbar() {
   const session = await getSession();
   const pendingCount = session ? await getPendingInviteCount() : 0;
@@ -26,14 +33,29 @@ export async function Navbar() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
-        <Link href="/" className="font-heading text-xl font-bold text-primary">
-          Boardly
-        </Link>
+        <div className="flex items-center gap-8">
+          <Link href="/" className="font-heading text-xl font-bold text-primary">
+            Boardly
+          </Link>
+
+          {!session && (
+            <nav className="hidden md:flex items-center gap-1">
+              {marketingLinks.map(({ href, label }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50"
+                >
+                  {label}
+                </Link>
+              ))}
+            </nav>
+          )}
+        </div>
 
         <div className="flex items-center gap-2">
           {session ? (
             <>
-              {/* Invite bell */}
               <Link
                 href="/invites"
                 className={buttonVariants({ variant: "ghost", size: "icon" }) + " relative"}
@@ -52,8 +74,6 @@ export async function Navbar() {
               >
                 Dashboard
               </Link>
-
-              {/* Profile avatar */}
               <Link
                 href="/profile"
                 aria-label="Profile"
@@ -82,7 +102,7 @@ export async function Navbar() {
                 href="/sign-in"
                 className={buttonVariants({ variant: "ghost", size: "sm" })}
               >
-                Sign in
+                Log in
               </Link>
               <Link
                 href="/sign-up"

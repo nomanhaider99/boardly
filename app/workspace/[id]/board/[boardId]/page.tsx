@@ -3,8 +3,9 @@ import { eq, asc, inArray } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
 import { getWorkspaceDetail } from "@/app/actions/workspace";
 import { db } from "@/lib/db";
-import { boards, lists, cards } from "@/db/schema";
+import { boards, lists, cards, users } from "@/db/schema";
 import { BoardView, type CardsByList } from "@/components/board-view";
+import { AgentPanelController } from "@/components/agent-panel-controller";
 import type { List } from "@/db/schema";
 
 export default async function BoardPage({
@@ -17,7 +18,14 @@ export default async function BoardPage({
 
   const { id: workspaceId, boardId } = await params;
 
-  const workspace = await getWorkspaceDetail(workspaceId);
+  const [[currentUser], workspace] = await Promise.all([
+    db
+      .select({ firstName: users.firstName, lastName: users.lastName })
+      .from(users)
+      .where(eq(users.id, session.userId))
+      .limit(1),
+    getWorkspaceDetail(workspaceId),
+  ]);
   if (!workspace) notFound();
 
   const [board] = await db
@@ -68,6 +76,15 @@ export default async function BoardPage({
           initialCards={cardsByList}
         />
       </div>
+
+      <AgentPanelController
+        boardId={boardId}
+        currentUserName={
+          currentUser
+            ? `${currentUser.firstName} ${currentUser.lastName}`
+            : session.email
+        }
+      />
     </div>
   );
 }
