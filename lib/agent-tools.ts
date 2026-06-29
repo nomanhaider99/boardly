@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { cards, comments, lists } from "@/db/schema";
+import { cards, comments, commentMentions, lists } from "@/db/schema";
 import {
   pusherServer,
   boardChannel,
@@ -23,12 +23,16 @@ export function createAgentTools(ctx: Context) {
   // ── addComment ────────────────────────────────────────────────────────────
   const addComment = tool({
     description:
-      "Post a comment on a card as the current user. Use this when asked to comment, reply, or leave a note on a card.",
+      "Post a comment on a card as the current user. Use this when asked to comment, reply, or leave a note on a card. When the user asks to tag or mention board members, include their UUIDs in mentionedUserIds and write @FirstName in the comment text.",
     parameters: z.object({
       cardId: z.string().describe("The UUID of the card to comment on"),
-      text: z.string().describe("The comment text to post"),
+      text: z.string().describe("The comment text to post. Use @Name syntax for any mentions."),
+      mentionedUserIds: z
+        .array(z.string())
+        .optional()
+        .describe("UUIDs of board members to tag in this comment. Use the member IDs from the board members list."),
     }),
-    execute: async ({ cardId, text }) => {
+    execute: async ({ cardId, text, mentionedUserIds }) => {
       const [card] = await db
         .select({ listId: cards.listId, title: cards.title })
         .from(cards)
@@ -43,6 +47,12 @@ export function createAgentTools(ctx: Context) {
         .insert(comments)
         .values({ cardId, userId, body: text })
         .returning({ id: comments.id });
+
+      if (mentionedUserIds && mentionedUserIds.length > 0) {
+        await db.insert(commentMentions).values(
+          mentionedUserIds.map((uid) => ({ commentId: comment.id, mentionedUserId: uid }))
+        );
+      }
 
       return { success: true as const, cardTitle: card.title, commentId: comment.id };
     },

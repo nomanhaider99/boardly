@@ -56,6 +56,26 @@ export async function POST(
     ? `${actingUser.firstName} ${actingUser.lastName}`
     : session.email;
 
+  // Fetch all workspace members for the system prompt
+  const boardMembers = await db
+    .select({
+      userId: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      role: workspaceMembers.role,
+      roleLabel: workspaceMembers.roleLabel,
+    })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(workspaceMembers.userId, users.id))
+    .where(eq(workspaceMembers.workspaceId, board.workspaceId));
+
+  const membersContext = boardMembers
+    .map((m) => {
+      const displayName = m.roleLabel ?? `${m.firstName} ${m.lastName}`;
+      return `  - ${displayName} (id: ${m.userId}, fullName: ${m.firstName} ${m.lastName}, role: ${m.role})`;
+    })
+    .join("\n");
+
   // Load full board state for system prompt + permission sets
   const boardLists = await db
     .select()
@@ -117,13 +137,17 @@ export async function POST(
 You are acting on behalf of ${actingUserName}. Every action you take (posting comments, moving cards) will be recorded as if they performed it manually. Do not impersonate anyone else or take actions outside this board.
 
 You have three tools available:
-- addComment: post a comment on a card as ${actingUserName}
+- addComment: post a comment on a card as ${actingUserName}. When tagging members, write @FirstName (or their display name) in the comment text AND pass their UUID(s) in mentionedUserIds.
 - moveCard: move a card to a different list (triggers real-time updates for all viewers)
 - webSearch: search the web for current information
 
 When using addComment or moveCard, use the card and list IDs from the board state below. Never make up IDs.
+When tagging a member, match by first name, last name, or display name from the board members list below. Use their exact id as the mentionedUserId.
 When you complete a tool action, briefly confirm what you did (e.g. "Done — I moved 'Task X' to Done.").
 Be concise. Do not repeat the full board state back to the user.
+
+Board members:
+${membersContext}
 
 Current board state:
 ${boardContext}`,
