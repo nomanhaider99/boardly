@@ -13,6 +13,10 @@ const nextConfig: NextConfig = {
         hostname: "utfs.io",
         pathname: "/f/**",
       },
+      {
+        protocol: "https",
+        hostname: "trello.com",
+      },
     ],
   },
 };

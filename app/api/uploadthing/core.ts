@@ -24,6 +24,22 @@ export const ourFileRouter = {
       return { url: file.ufsUrl };
     }),
 
+  chatFile: f({
+    image: { maxFileSize: "8MB", maxFileCount: 1 },
+    pdf: { maxFileSize: "16MB", maxFileCount: 1 },
+    "application/msword": { maxFileSize: "16MB" },
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": { maxFileSize: "16MB" },
+    text: { maxFileSize: "4MB" },
+  })
+    .middleware(async () => {
+      const session = await getSession();
+      if (!session) throw new Error("Unauthorized");
+      return { userId: session.userId };
+    })
+    .onUploadComplete(async ({ file }) => {
+      return { url: file.ufsUrl, name: file.name, type: file.type };
+    }),
+
   cardAttachment: f({
     image: { maxFileSize: "8MB", maxFileCount: 4 },
     pdf: { maxFileSize: "16MB", maxFileCount: 4 },

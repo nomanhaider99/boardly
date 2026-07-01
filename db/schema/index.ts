@@ -189,6 +189,18 @@ export const attachments = pgTable("attachments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const trelloConnections = pgTable("trello_connections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  apiKey: text("api_key").notNull(),
+  token: text("token").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type TrelloConnection = typeof trelloConnections.$inferSelect;
+
 export type BoardMemberLabel = typeof boardMemberLabels.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

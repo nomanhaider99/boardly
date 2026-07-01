@@ -7,6 +7,7 @@ import { boards, lists, cards, users } from "@/db/schema";
 import { BoardView, type CardsByList } from "@/components/board-view";
 import { AgentPanelController } from "@/components/agent-panel-controller";
 import { ChatPanel } from "@/components/chat-panel";
+import { TrelloImportDialog } from "@/components/trello-import-dialog";
 import type { List } from "@/db/schema";
 
 export default async function BoardPage({
@@ -66,6 +67,9 @@ export default async function BoardPage({
         <h1 className="font-heading font-bold text-lg">{board.name}</h1>
         <span className="text-muted-foreground text-xs">/</span>
         <span className="text-sm text-muted-foreground">{workspace.name}</span>
+        <div className="ml-auto">
+          <TrelloImportDialog boardId={boardId} boardName={board.name} />
+        </div>
       </header>
 
       <div className="flex-1 overflow-hidden p-4">
