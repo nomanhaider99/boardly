@@ -159,6 +159,18 @@ export const boardMemberLabels = pgTable(
   (t) => [primaryKey({ columns: [t.boardId, t.userId] })]
 );
 
+export const boardMessages = pgTable("board_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  boardId: uuid("board_id")
+    .notNull()
+    .references(() => boards.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const attachments = pgTable("attachments", {
   id: uuid("id").primaryKey().defaultRandom(),
   cardId: uuid("card_id")
@@ -186,3 +198,4 @@ export type Card = typeof cards.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
 export type CommentMention = typeof commentMentions.$inferSelect;
 export type Attachment = typeof attachments.$inferSelect;
+export type BoardMessage = typeof boardMessages.$inferSelect;

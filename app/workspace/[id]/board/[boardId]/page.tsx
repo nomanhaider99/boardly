@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { boards, lists, cards, users } from "@/db/schema";
 import { BoardView, type CardsByList } from "@/components/board-view";
 import { AgentPanelController } from "@/components/agent-panel-controller";
+import { ChatPanel } from "@/components/chat-panel";
 import type { List } from "@/db/schema";
 
 export default async function BoardPage({
@@ -85,6 +86,8 @@ export default async function BoardPage({
             : session.email
         }
       />
+
+      <ChatPanel boardId={boardId} currentUserId={session.userId} />
     </div>
   );
 }
