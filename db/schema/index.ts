@@ -164,7 +164,10 @@ export const boardMessages = pgTable("board_messages", {
   boardId: uuid("board_id")
     .notNull()
     .references(() => boards.id, { onDelete: "cascade" }),
-  userId: uuid("user_id")
+  fromUserId: uuid("from_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  toUserId: uuid("to_user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
