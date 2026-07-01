@@ -5,8 +5,6 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { cards, lists, boards, workspaceMembers } from "@/db/schema";
 import { getSession } from "@/lib/auth";
-import { pusherServer } from "@/lib/pusher-server";
-import { boardChannel, CARDS_UPDATED, type CardsUpdatedPayload } from "@/lib/pusher-shared";
 
 export type CardActionResult =
   | { success: true; cardId?: string }
@@ -144,8 +142,7 @@ export async function moveCard(
 export async function reorderCards(
   listId: string,
   orderedIds: string[],
-  boardId: string,
-  socketId?: string
+  boardId: string
 ): Promise<CardActionResult> {
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
@@ -159,13 +156,6 @@ export async function reorderCards(
     )
   );
 
-  const payload: CardsUpdatedPayload = {
-    lists: [{ listId, cardIds: orderedIds }],
-  };
-  await pusherServer
-    .trigger(boardChannel(boardId), CARDS_UPDATED, payload, socketId ? { socket_id: socketId } : undefined)
-    .catch(() => {});
-
   return { success: true };
 }
 
@@ -174,9 +164,7 @@ export async function moveCrossListCard(
   fromListId: string,
   toListId: string,
   fromListCardIds: string[],
-  toListCardIds: string[],
-  boardId: string,
-  socketId?: string
+  toListCardIds: string[]
 ): Promise<CardActionResult> {
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
@@ -196,16 +184,6 @@ export async function moveCrossListCard(
       db.update(cards).set({ position: index }).where(eq(cards.id, id))
     ),
   ]);
-
-  const payload: CardsUpdatedPayload = {
-    lists: [
-      { listId: fromListId, cardIds: fromListCardIds },
-      { listId: toListId, cardIds: toListCardIds },
-    ],
-  };
-  await pusherServer
-    .trigger(boardChannel(boardId), CARDS_UPDATED, payload, socketId ? { socket_id: socketId } : undefined)
-    .catch(() => {});
 
   return { success: true };
 }

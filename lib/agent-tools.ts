@@ -3,12 +3,6 @@ import { z } from "zod";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { cards, comments, commentMentions, lists } from "@/db/schema";
-import {
-  pusherServer,
-  boardChannel,
-  CARDS_UPDATED,
-  type CardsUpdatedPayload,
-} from "@/lib/pusher-server";
 
 type Context = {
   boardId: string;
@@ -122,16 +116,6 @@ export function createAgentTools(ctx: Context) {
             )
           : []),
       ]);
-
-      const payload: CardsUpdatedPayload = {
-        lists: sameList
-          ? [{ listId: targetListId, cardIds: toIds }]
-          : [
-              { listId: fromListId, cardIds: fromIds },
-              { listId: targetListId, cardIds: toIds },
-            ],
-      };
-      pusherServer.trigger(boardChannel(boardId), CARDS_UPDATED, payload).catch(() => {});
 
       // Resolve list titles for the human-readable result
       const listIds = [...new Set([fromListId, targetListId])];

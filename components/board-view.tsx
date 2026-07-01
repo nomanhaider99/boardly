@@ -26,9 +26,11 @@ import { ListColumn } from "@/components/list-column";
 import { CardDetailDialog } from "@/components/card-detail-sheet";
 import { AddListInline } from "@/components/add-list-inline";
 import { BoardMembersPanel } from "@/components/board-members-panel";
-import { getPusherClient } from "@/lib/pusher-client";
-import { CARDS_UPDATED, type CardsUpdatedPayload } from "@/lib/pusher-shared";
 import type { List, Card } from "@/db/schema";
+
+type CardsUpdatedPayload = {
+  lists: Array<{ listId: string; cardIds: string[] }>;
+};
 
 export type CardsByList = Record<string, Card[]>;
 
@@ -97,15 +99,21 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
     });
   }, []);
 
-  // Pusher subscription
+  // Poll for card order changes every 5 seconds
   useEffect(() => {
-    const pusher = getPusherClient();
-    const channel = pusher.subscribe(`board-${boardId}`);
-    channel.bind(CARDS_UPDATED, applyCardsUpdated);
-    return () => {
-      channel.unbind(CARDS_UPDATED, applyCardsUpdated);
-      pusher.unsubscribe(`board-${boardId}`);
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/board/${boardId}/cards`);
+        if (!res.ok) return;
+        const data: CardsUpdatedPayload = await res.json();
+        applyCardsUpdated(data);
+      } catch {
+        // ignore transient network errors
+      }
     };
+
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
   }, [boardId, applyCardsUpdated]);
 
   const sensors = useSensors(
@@ -192,8 +200,6 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
       overListRef.current = null;
       if (!targetList) return;
 
-      const socketId = getPusherClient().connection.socket_id;
-
       const listCards = [...(cardsByList[targetList] ?? [])];
       const oldIndex = listCards.findIndex((c) => c.id === active.id);
       const newIndex = listCards.findIndex((c) => c.id === over.id);
@@ -213,9 +219,7 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
           dragFromList,
           targetList,
           fromCards.map((c) => c.id),
-          finalCards.map((c) => c.id),
-          boardId,
-          socketId
+          finalCards.map((c) => c.id)
         );
         if (!result.success) {
           toast.error("Failed to move card.");
@@ -225,8 +229,7 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
         const result = await reorderCards(
           targetList,
           finalCards.map((c) => c.id),
-          boardId,
-          socketId
+          boardId
         );
         if (!result.success) {
           toast.error("Failed to save card order.");
