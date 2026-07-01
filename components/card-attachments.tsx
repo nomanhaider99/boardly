@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { FileText, Trash2, Loader2, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { saveAttachment, deleteAttachment } from "@/app/actions/attachment";
@@ -91,13 +90,16 @@ export function CardAttachments({
           >
             {att.type === "image" ? (
               <a href={att.url} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                <div className="relative h-12 w-16 rounded overflow-hidden border border-border">
-                  <Image
+                <div className="h-12 w-16 rounded overflow-hidden border border-border bg-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
                     src={att.url}
                     alt={att.fileName}
-                    fill
-                    className="object-cover"
-                    sizes="64px"
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = "none";
+                      (e.currentTarget.parentElement as HTMLElement).classList.add("flex", "items-center", "justify-center");
+                    }}
                   />
                 </div>
               </a>
