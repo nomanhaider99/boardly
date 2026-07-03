@@ -133,6 +133,7 @@ export const comments = pgTable("comments", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
+  isSystem: boolean("is_system").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

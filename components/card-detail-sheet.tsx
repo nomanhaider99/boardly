@@ -22,6 +22,35 @@ import type { AttachmentWithUploader } from "@/app/actions/attachment";
 
 type EditField = "title" | "description" | "dueDate" | null;
 
+function FaviconLink({ url }: { url: string }) {
+  const [iconError, setIconError] = useState(false);
+  let hostname = url;
+  try { hostname = new URL(url).hostname.replace(/^www\./, ""); } catch {}
+  const faviconSrc = `https://www.google.com/s2/favicons?domain=${hostname}&sz=16`;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-primary underline underline-offset-2 hover:text-primary/80 transition-colors cursor-pointer max-w-full"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {!iconError && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={faviconSrc}
+          alt=""
+          width={13}
+          height={13}
+          className="shrink-0 rounded-[2px] mt-px"
+          onError={() => setIconError(true)}
+        />
+      )}
+      <span className="truncate max-w-[320px]" title={url}>{hostname}</span>
+    </a>
+  );
+}
+
 function renderDescription(text: string) {
   const parts = text.split(/(https?:\/\/\S+)/g);
   return parts.map((part, i) => {
@@ -30,15 +59,7 @@ function renderDescription(text: string) {
     const trailing = part.slice(url.length);
     return (
       <span key={i}>
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors break-all cursor-pointer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {url}
-        </a>
+        <FaviconLink url={url} />
         {trailing}
       </span>
     );

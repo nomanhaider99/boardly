@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useRef, useEffect } from "react";
-import { Loader2, Trash2, Send } from "lucide-react";
+import { Loader2, Trash2, Send, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { addComment, deleteComment } from "@/app/actions/comment";
 import { Button } from "@/components/ui/button";
@@ -156,6 +156,7 @@ export function CardComments({
           userId: currentUserId,
           firstName: "You",
           lastName: "",
+          isSystem: false,
         },
         ...prev,
       ]);
@@ -176,7 +177,7 @@ export function CardComments({
   return (
     <div className="space-y-4">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Comments ({commentList.length})
+        Comments ({commentList.filter((c) => !c.isSystem).length})
       </h3>
 
       {/* Composer */}
@@ -225,39 +226,53 @@ export function CardComments({
 
       {/* Thread — newest first */}
       {commentList.length > 0 && (
-        <div className="space-y-3">
-          {commentList.map((comment) => (
-            <div key={comment.id} className="rounded-xl border border-border/50 bg-muted/40 px-3 py-2.5 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
-                  {comment.firstName.charAt(0).toUpperCase()}
+        <div className="space-y-2">
+          {commentList.map((comment) =>
+            comment.isSystem ? (
+              // Activity row
+              <div key={comment.id} className="flex items-start gap-2 py-1 px-1">
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted border border-border mt-0.5">
+                  <ArrowRight className="h-2.5 w-2.5 text-muted-foreground" />
                 </div>
-                <span className="text-xs font-semibold">
-                  {boardLabelMap?.[comment.userId] ?? `${comment.firstName} ${comment.lastName}`.trim()}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {timeAgo(comment.createdAt)}
-                </span>
-                {comment.userId === currentUserId && (
-                  <button
-                    onClick={() => handleDelete(comment.id)}
-                    disabled={deletingId === comment.id}
-                    className="ml-auto text-muted-foreground hover:text-destructive transition-colors"
-                    aria-label="Delete comment"
-                  >
-                    {deletingId === comment.id ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3 w-3" />
-                    )}
-                  </button>
-                )}
+                <p className="text-xs text-muted-foreground leading-relaxed flex-1">
+                  {comment.body}
+                  <span className="ml-1.5 text-[10px] opacity-60">{timeAgo(comment.createdAt)}</span>
+                </p>
               </div>
-              <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap break-words pl-8">
-                {renderBody(comment.body)}
-              </p>
-            </div>
-          ))}
+            ) : (
+              // Regular comment bubble
+              <div key={comment.id} className="rounded-xl border border-border/50 bg-muted/40 px-3 py-2.5 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
+                    {comment.firstName.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-xs font-semibold">
+                    {boardLabelMap?.[comment.userId] ?? `${comment.firstName} ${comment.lastName}`.trim()}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {timeAgo(comment.createdAt)}
+                  </span>
+                  {comment.userId === currentUserId && (
+                    <button
+                      onClick={() => handleDelete(comment.id)}
+                      disabled={deletingId === comment.id}
+                      className="ml-auto text-muted-foreground hover:text-destructive transition-colors"
+                      aria-label="Delete comment"
+                    >
+                      {deletingId === comment.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3 w-3" />
+                      )}
+                    </button>
+                  )}
+                </div>
+                <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap break-words pl-8">
+                  {renderBody(comment.body)}
+                </p>
+              </div>
+            )
+          )}
         </div>
       )}
     </div>

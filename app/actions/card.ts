@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { cards, lists, boards, workspaceMembers } from "@/db/schema";
+import { cards, lists, boards, workspaceMembers, comments, users } from "@/db/schema";
 import { getSession } from "@/lib/auth";
 
 export type CardActionResult =
@@ -172,6 +172,12 @@ export async function moveCrossListCard(
   const member = await assertListMember(toListId, session.userId);
   if (!member) return { success: false, error: "Not authorized." };
 
+  const [[fromList], [toList], [mover]] = await Promise.all([
+    db.select({ title: lists.title }).from(lists).where(eq(lists.id, fromListId)).limit(1),
+    db.select({ title: lists.title }).from(lists).where(eq(lists.id, toListId)).limit(1),
+    db.select({ firstName: users.firstName, lastName: users.lastName }).from(users).where(eq(users.id, session.userId)).limit(1),
+  ]);
+
   // Update listId for the moved card
   await db.update(cards).set({ listId: toListId }).where(eq(cards.id, cardId));
 
@@ -184,6 +190,16 @@ export async function moveCrossListCard(
       db.update(cards).set({ position: index }).where(eq(cards.id, id))
     ),
   ]);
+
+  if (fromList && toList && mover) {
+    const name = `${mover.firstName} ${mover.lastName}`.trim();
+    await db.insert(comments).values({
+      cardId,
+      userId: session.userId,
+      body: `${name} moved this card from "${fromList.title}" to "${toList.title}"`,
+      isSystem: true,
+    });
+  }
 
   return { success: true };
 }

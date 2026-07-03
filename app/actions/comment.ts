@@ -79,6 +79,7 @@ export type CommentWithUser = {
   userId: string;
   firstName: string;
   lastName: string;
+  isSystem: boolean;
 };
 
 export async function getCardComments(cardId: string): Promise<CommentWithUser[]> {
@@ -90,6 +91,7 @@ export async function getCardComments(cardId: string): Promise<CommentWithUser[]
       userId: comments.userId,
       firstName: users.firstName,
       lastName: users.lastName,
+      isSystem: comments.isSystem,
     })
     .from(comments)
     .innerJoin(users, eq(comments.userId, users.id))
