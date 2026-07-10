@@ -99,6 +99,7 @@ export const boards = pgTable("boards", {
     .notNull()
     .references(() => workspaces.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  backgroundImageUrl: text("background_image_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -135,6 +136,7 @@ export const comments = pgTable("comments", {
   body: text("body").notNull(),
   isSystem: boolean("is_system").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  editedAt: timestamp("edited_at"),
 });
 
 export const commentMentions = pgTable("comment_mentions", {
@@ -159,6 +161,17 @@ export const boardMemberLabels = pgTable(
   },
   (t) => [primaryKey({ columns: [t.boardId, t.userId] })]
 );
+
+export const boardMembers = pgTable("board_members", {
+  boardId: uuid("board_id")
+    .notNull()
+    .references(() => boards.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  canMoveCards: boolean("can_move_cards").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.boardId, t.userId] })]);
 
 export const boardMessages = pgTable("board_messages", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -190,6 +203,29 @@ export const attachments = pgTable("attachments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const cardLabelTypeEnum = pgEnum("card_label_type", ["custom", "priority"]);
+
+export const cardLabels = pgTable("card_labels", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  boardId: uuid("board_id")
+    .notNull()
+    .references(() => boards.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  color: text("color").notNull(),
+  type: cardLabelTypeEnum("type").notNull().default("custom"),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const cardLabelAssignments = pgTable("card_label_assignments", {
+  cardId: uuid("card_id")
+    .notNull()
+    .references(() => cards.id, { onDelete: "cascade" }),
+  labelId: uuid("label_id")
+    .notNull()
+    .references(() => cardLabels.id, { onDelete: "cascade" }),
+}, (t) => [primaryKey({ columns: [t.cardId, t.labelId] })]);
+
 export const trelloConnections = pgTable("trello_connections", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
@@ -202,7 +238,37 @@ export const trelloConnections = pgTable("trello_connections", {
 });
 export type TrelloConnection = typeof trelloConnections.$inferSelect;
 
+export const cardCredentials = pgTable("card_credentials", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cardId: uuid("card_id")
+    .notNull()
+    .references(() => cards.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  icon: text("icon"),
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const credentialFields = pgTable("credential_fields", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  credentialId: uuid("credential_id")
+    .notNull()
+    .references(() => cardCredentials.id, { onDelete: "cascade" }),
+  key: text("key").notNull(),
+  value: text("value").notNull(),
+  order: integer("order").notNull().default(0),
+});
+
+export type CardCredential = typeof cardCredentials.$inferSelect;
+export type CredentialField = typeof credentialFields.$inferSelect;
+
+export type CardLabel = typeof cardLabels.$inferSelect;
+export type CardLabelAssignment = typeof cardLabelAssignments.$inferSelect;
+
 export type BoardMemberLabel = typeof boardMemberLabels.$inferSelect;
+export type BoardMember = typeof boardMembers.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;

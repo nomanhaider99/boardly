@@ -2,16 +2,19 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { and, eq, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { boards, workspaceMembers, users, boardMemberLabels } from "@/db/schema";
+import { boards, workspaceMembers, users, boardMemberLabels, boardMembers } from "@/db/schema";
 import { getSession } from "@/lib/auth";
+import { seedDefaultPriorityLabels } from "@/app/actions/label";
 
 export type BoardActionResult =
   | { success: true; boardId: string }
   | { success: false; error: string };
 
 export type BoardLabelResult = { success: boolean; error?: string };
+
+export type BoardBackgroundResult = { success: boolean; error?: string };
 
 export type MemberWithBoardLabel = {
   userId: string;
@@ -20,6 +23,7 @@ export type MemberWithBoardLabel = {
   email: string;
   workspaceRoleLabel: string | null;
   boardLabel: string | null;
+  canMoveCards: boolean;
 };
 
 async function getWorkspaceIdForBoard(boardId: string): Promise<string | null> {
@@ -66,9 +70,15 @@ export async function getBoardMemberLabels(boardId: string): Promise<MemberWithB
     .from(boardMemberLabels)
     .where(eq(boardMemberLabels.boardId, boardId));
 
-  const labelMap = Object.fromEntries(labels.map((l) => [l.userId, l.label]));
+  const movePermissions = await db
+    .select({ userId: boardMembers.userId, canMoveCards: boardMembers.canMoveCards })
+    .from(boardMembers)
+    .where(eq(boardMembers.boardId, boardId));
 
-  return members.map((m) => ({ ...m, boardLabel: labelMap[m.userId] ?? null }));
+  const labelMap = Object.fromEntries(labels.map((l) => [l.userId, l.label]));
+  const moveMap = Object.fromEntries(movePermissions.map((m) => [m.userId, m.canMoveCards ?? true]));
+
+  return members.map((m) => ({ ...m, boardLabel: labelMap[m.userId] ?? null, canMoveCards: moveMap[m.userId] ?? true }));
 }
 
 export async function setBoardMemberLabel(
@@ -98,6 +108,28 @@ export async function setBoardMemberLabel(
     .onConflictDoUpdate({
       target: [boardMemberLabels.boardId, boardMemberLabels.userId],
       set: { label: parsed.data },
+    });
+
+  return { success: true };
+}
+
+export async function setBoardMemberMovePermission(
+  boardId: string,
+  targetUserId: string,
+  canMoveCards: boolean
+): Promise<BoardLabelResult> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const isOwner = await assertBoardOwner(boardId, session.userId);
+  if (!isOwner) return { success: false, error: "Only workspace owners can set card move permissions." };
+
+  await db
+    .insert(boardMembers)
+    .values({ boardId, userId: targetUserId, canMoveCards })
+    .onConflictDoUpdate({
+      target: [boardMembers.boardId, boardMembers.userId],
+      set: { canMoveCards },
     });
 
   return { success: true };
@@ -135,6 +167,8 @@ export async function createBoard(
     .values({ workspaceId, name: name.data })
     .returning({ id: boards.id });
 
+  await seedDefaultPriorityLabels(board.id);
+
   return { success: true, boardId: board.id };
 }
 
@@ -167,5 +201,22 @@ export async function deleteBoard(boardId: string): Promise<{ success: boolean; 
   if (!member) return { success: false, error: "Not authorized." };
 
   await db.delete(boards).where(eq(boards.id, boardId));
+  return { success: true };
+}
+
+export async function updateBoardBackground(
+  boardId: string,
+  backgroundImageUrl: string | null
+): Promise<BoardBackgroundResult> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const [board] = await db.select().from(boards).where(eq(boards.id, boardId)).limit(1);
+  if (!board) return { success: false, error: "Board not found." };
+
+  const isOwner = await assertBoardOwner(boardId, session.userId);
+  if (!isOwner) return { success: false, error: "Only workspace owners can change board background." };
+
+  await db.update(boards).set({ backgroundImageUrl: backgroundImageUrl }).where(eq(boards.id, boardId));
   return { success: true };
 }

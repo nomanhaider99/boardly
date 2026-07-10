@@ -2,18 +2,20 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Calendar } from "lucide-react";
+import { Calendar, Tag } from "lucide-react";
 import Image from "next/image";
 import { getUrgency, urgencyConfig } from "@/lib/due-date";
 import type { Card } from "@/db/schema";
+import type { CardLabel } from "@/db/schema";
 
 interface CardItemProps {
   card: Card;
   listId: string;
   onClick: () => void;
+  labels?: CardLabel[];
 }
 
-export function CardItem({ card, listId, onClick }: CardItemProps) {
+export function CardItem({ card, listId, onClick, labels = [] }: CardItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id, data: { type: "card", listId } });
 
@@ -53,6 +55,24 @@ export function CardItem({ card, listId, onClick }: CardItemProps) {
 
       <div className="px-3 py-2.5 space-y-1.5">
         <p className="text-sm font-medium leading-snug">{card.title}</p>
+
+        {labels && labels.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {labels.slice(0, 4).map((label) => (
+              <span
+                key={label.id}
+                className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                style={{ backgroundColor: `${label.color}20`, color: label.color }}
+              >
+                {label.type === "priority" && <Tag className="h-2.5 w-2.5" />}
+                {label.title}
+              </span>
+            ))}
+            {labels.length > 4 && (
+              <span className="text-[10px] text-muted-foreground">+{labels.length - 4}</span>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-2 flex-wrap">
           {card.description && (

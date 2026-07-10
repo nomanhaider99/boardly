@@ -26,7 +26,8 @@ import { ListColumn } from "@/components/list-column";
 import { CardDetailDialog } from "@/components/card-detail-sheet";
 import { AddListInline } from "@/components/add-list-inline";
 import { BoardMembersPanel } from "@/components/board-members-panel";
-import type { List, Card } from "@/db/schema";
+import { getLabelsForCards } from "@/app/actions/label";
+import type { List, Card, CardLabel } from "@/db/schema";
 
 type CardsUpdatedPayload = {
   lists: Array<{ listId: string; cardIds: string[] }>;
@@ -48,6 +49,7 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  const [cardLabelsMap, setCardLabelsMap] = useState<Record<string, CardLabel[]>>({});
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -115,6 +117,20 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
     const id = setInterval(poll, 5000);
     return () => clearInterval(id);
   }, [boardId, applyCardsUpdated]);
+
+  // Load labels for all cards on the board
+  useEffect(() => {
+    const allCardIds = Object.values(cardsByList).flat().map((c) => c.id);
+    if (allCardIds.length === 0) return;
+    getLabelsForCards(allCardIds).then((results) => {
+      const map: Record<string, CardLabel[]> = {};
+      for (const { label, cardId } of results) {
+        if (!map[cardId]) map[cardId] = [];
+        map[cardId].push(label);
+      }
+      setCardLabelsMap(map);
+    });
+  }, [cardsByList]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -370,6 +386,7 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
                     key={list.id}
                     list={list}
                     cards={cardsByList[list.id] ?? []}
+                    cardLabelsMap={cardLabelsMap}
                     onCardClick={setSelectedCard}
                     onCardAdded={(card) => onCardAdded(list.id, card)}
                     onListDeleted={onListDeleted}

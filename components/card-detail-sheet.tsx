@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Loader2, Trash2, Calendar, Pencil, Check, X, ImagePlus, RefreshCw } from "lucide-react";
+import { Loader2, Trash2, Calendar, Pencil, Check, X, ImagePlus, RefreshCw, Key } from "lucide-react";
 import { toast } from "sonner";
 import Image from "next/image";
 import { updateCard, deleteCard } from "@/app/actions/card";
@@ -19,6 +19,10 @@ import { getUrgency, urgencyConfig } from "@/lib/due-date";
 import type { Card } from "@/db/schema";
 import type { CommentWithUser, MemberForMention } from "@/app/actions/comment";
 import type { AttachmentWithUploader } from "@/app/actions/attachment";
+import { getBoardLabels } from "@/app/actions/label";
+import type { CardLabel } from "@/db/schema";
+import { LabelPicker } from "@/components/label-picker";
+import { CredentialsDialog } from "@/components/credentials-dialog";
 
 type EditField = "title" | "description" | "dueDate" | null;
 
@@ -94,6 +98,7 @@ export function CardDetailDialog({
   const [attachments, setAttachments] = useState<AttachmentWithUploader[]>([]);
   const [members, setMembers] = useState<MemberForMention[]>([]);
   const [boardLabelMap, setBoardLabelMap] = useState<Record<string, string>>({});
+  const [cardLabels, setCardLabels] = useState<CardLabel[]>([]);
   const [loadingExtra, setLoadingExtra] = useState(false);
 
   const addCoverInputRef = useRef<HTMLInputElement>(null);
@@ -114,18 +119,22 @@ export function CardDetailDialog({
       getCardAttachments(card.id),
       getCardWorkspaceMembers(card.id),
       getBoardMemberLabels(boardId),
+      getBoardLabels(boardId),
     ])
-      .then(([c, a, m, labels]) => {
+      .then(([c, a, m, labels, allLabels]) => {
         setComments(c);
         setAttachments(a);
         setMembers(m);
         setBoardLabelMap(Object.fromEntries(
           labels.filter((l) => l.boardLabel).map((l) => [l.userId, l.boardLabel!])
         ));
+        setCardLabels(
+          allLabels.filter((l) => l.type === "priority")
+        );
       })
       .catch(() => toast.error("Failed to load card details."))
       .finally(() => setLoadingExtra(false));
-  }, [card?.id]);
+  }, [card?.id, boardId]);
 
   function isDirty() {
     if (!card || !editingField) return false;
@@ -158,6 +167,10 @@ export function CardDetailDialog({
 
   function cancelEdit() {
     setEditingField(null);
+  }
+
+  function onLabelsChange(labels: CardLabel[]) {
+    setCardLabels(labels);
   }
 
   async function saveField(field: "title" | "description" | "dueDate") {
@@ -448,6 +461,20 @@ export function CardDetailDialog({
                   )}
                 </div>
 
+                {/* Credentials */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                    <Key className="h-3.5 w-3.5" />
+                    Credentials
+                  </Label>
+                  <CredentialsDialog
+                    cardId={card.id}
+                    boardId={boardId}
+                    open={true}
+                    onOpenChange={() => {}}
+                  />
+                </div>
+
                 {/* Due date */}
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
@@ -515,6 +542,16 @@ export function CardDetailDialog({
                       <Pencil className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </button>
                   )}
+                </div>
+
+                {/* Labels */}
+                <div className="space-y-1.5">
+                  <LabelPicker
+                    cardId={card.id}
+                    boardId={boardId}
+                    currentLabels={cardLabels}
+                    onLabelsChange={onLabelsChange}
+                  />
                 </div>
 
                 {/* Attachments */}
