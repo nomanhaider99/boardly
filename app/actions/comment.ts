@@ -72,28 +72,6 @@ export async function deleteComment(commentId: string): Promise<CommentActionRes
   return { success: true };
 }
 
-export async function updateComment(
-  commentId: string,
-  body: string
-): Promise<CommentActionResult> {
-  const session = await getSession();
-  if (!session) return { success: false, error: "Not authenticated." };
-
-  const [comment] = await db.select().from(comments).where(eq(comments.id, commentId)).limit(1);
-  if (!comment) return { success: false, error: "Comment not found." };
-  if (comment.userId !== session.userId) return { success: false, error: "Not your comment." };
-
-  const parsed = z.string().min(1).max(2000).safeParse(body);
-  if (!parsed.success) return { success: false, error: "Comment body is required." };
-
-  await db
-    .update(comments)
-    .set({ body: parsed.data, editedAt: new Date() })
-    .where(eq(comments.id, commentId));
-
-  return { success: true };
-}
-
 export type CommentWithUser = {
   id: string;
   body: string;
@@ -102,7 +80,6 @@ export type CommentWithUser = {
   firstName: string;
   lastName: string;
   isSystem: boolean;
-  editedAt: Date | null;
 };
 
 export async function getCardComments(cardId: string): Promise<CommentWithUser[]> {
@@ -111,7 +88,6 @@ export async function getCardComments(cardId: string): Promise<CommentWithUser[]
       id: comments.id,
       body: comments.body,
       createdAt: comments.createdAt,
-      editedAt: comments.editedAt,
       userId: comments.userId,
       firstName: users.firstName,
       lastName: users.lastName,

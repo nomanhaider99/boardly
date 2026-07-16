@@ -46,7 +46,6 @@ export const ourFileRouter = {
     "application/msword": { maxFileSize: "16MB" },
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": { maxFileSize: "16MB" },
     text: { maxFileSize: "4MB" },
-    video: { maxFileSize: "16MB", maxFileCount: 4 },
   })
     .middleware(async () => {
       const session = await getSession();

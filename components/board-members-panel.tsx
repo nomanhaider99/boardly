@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Users, Loader2, Pencil, Check, X, Search } from "lucide-react";
+import { useState } from "react";
+import { Users, Loader2, Pencil, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,11 +11,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import {
   getBoardMemberLabels,
   setBoardMemberLabel,
-  setBoardMemberMovePermission,
   type MemberWithBoardLabel,
 } from "@/app/actions/board";
 
@@ -28,7 +26,6 @@ export function BoardMembersPanel({ boardId, isOwner }: Props) {
   const [open, setOpen] = useState(false);
   const [members, setMembers] = useState<MemberWithBoardLabel[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
 
   async function handleOpen() {
     setOpen(true);
@@ -43,25 +40,6 @@ export function BoardMembersPanel({ boardId, isOwner }: Props) {
       prev.map((m) => (m.userId === userId ? { ...m, boardLabel: label } : m))
     );
   }
-
-  function updateMemberCanMove(userId: string, canMove: boolean) {
-    setMembers((prev) =>
-      prev.map((m) => (m.userId === userId ? { ...m, canMoveCards: canMove } : m))
-    );
-  }
-
-  const filteredMembers = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return members;
-    return members.filter(
-      (m) =>
-        m.firstName.toLowerCase().includes(q) ||
-        m.lastName.toLowerCase().includes(q) ||
-        m.email.toLowerCase().includes(q) ||
-        m.boardLabel?.toLowerCase().includes(q) ||
-        m.workspaceRoleLabel?.toLowerCase().includes(q)
-    );
-  }, [members, searchQuery]);
 
   return (
     <>
@@ -81,45 +59,21 @@ export function BoardMembersPanel({ boardId, isOwner }: Props) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="relative mb-3">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search members…"
-              className="w-full h-9 rounded-lg border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                aria-label="Clear search"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
           {loading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="space-y-1 max-h-96 overflow-y-auto">
-              {filteredMembers.map((member) => (
+            <div className="space-y-1">
+              {members.map((member) => (
                 <MemberRow
                   key={member.userId}
                   member={member}
                   boardId={boardId}
                   isOwner={isOwner}
                   onLabelChange={(label) => updateMemberLabel(member.userId, label)}
-                  onCanMoveChange={(canMove) => updateMemberCanMove(member.userId, canMove)}
                 />
               ))}
-              {members.length > 0 && filteredMembers.length === 0 && (
-                <p className="py-4 text-center text-sm text-muted-foreground">No members match your search.</p>
-              )}
               {members.length === 0 && (
                 <p className="py-4 text-center text-sm text-muted-foreground">No members found.</p>
               )}
@@ -136,18 +90,15 @@ function MemberRow({
   boardId,
   isOwner,
   onLabelChange,
-  onCanMoveChange,
 }: {
   member: MemberWithBoardLabel;
   boardId: string;
   isOwner: boolean;
   onLabelChange: (label: string | null) => void;
-  onCanMoveChange: (canMove: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(member.boardLabel ?? "");
   const [saving, setSaving] = useState(false);
-  const [savingMove, setSavingMove] = useState(false);
 
   async function handleSave() {
     const trimmed = draft.trim() || null;
@@ -161,18 +112,6 @@ function MemberRow({
     onLabelChange(trimmed);
     setEditing(false);
     toast.success(trimmed ? "Board label saved." : "Board label removed.");
-  }
-
-  async function handleMovePermissionChange(canMove: boolean) {
-    setSavingMove(true);
-    const result = await setBoardMemberMovePermission(boardId, member.userId, canMove);
-    setSavingMove(false);
-    if (!result.success) {
-      toast.error(result.error);
-      return;
-    }
-    onCanMoveChange(canMove);
-    toast.success(canMove ? "Card move enabled." : "Card move disabled.");
   }
 
   function handleCancel() {
@@ -259,18 +198,6 @@ function MemberRow({
                 </button>
               )
             )}
-          </div>
-        )}
-
-        {isOwner && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Switch
-              checked={member.canMoveCards}
-              onCheckedChange={handleMovePermissionChange}
-              disabled={savingMove}
-              aria-label="Allow card movement"
-            />
-            <span>Allow card movement</span>
           </div>
         )}
       </div>

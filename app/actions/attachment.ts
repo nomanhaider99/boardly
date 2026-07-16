@@ -32,12 +32,11 @@ export async function saveAttachment(
   if (!member) return { success: false, error: "Card not found." };
 
   const isImage = /^image\//.test(file.type);
-  const isVideo = /^video\//.test(file.type);
 
   await db.insert(attachments).values({
     cardId,
     url: file.url,
-    type: isImage ? "image" : isVideo ? "video" : "document",
+    type: isImage ? "image" : "document",
     fileName: file.name,
     size: file.size,
     uploadedByUserId: session.userId,

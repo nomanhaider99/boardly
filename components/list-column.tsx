@@ -10,12 +10,11 @@ import { deleteList, updateListTitle } from "@/app/actions/list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CardItem } from "@/components/card-item";
-import type { List, Card, CardLabel } from "@/db/schema";
+import type { List, Card } from "@/db/schema";
 
 interface ListColumnProps {
   list: List;
   cards: Card[];
-  cardLabelsMap: Record<string, CardLabel[]>;
   onCardClick: (card: Card) => void;
   onCardAdded: (card: Card) => void;
   onListDeleted: (listId: string) => void;
@@ -25,7 +24,6 @@ interface ListColumnProps {
 export function ListColumn({
   list,
   cards,
-  cardLabelsMap,
   onCardClick,
   onCardAdded,
   onListDeleted,
@@ -161,17 +159,11 @@ export function ListColumn({
 
       {/* Cards */}
       <div className="flex-1 overflow-y-auto px-2 pb-1 space-y-1.5">
-<SortableContext items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-            {cards.map((card) => (
-              <CardItem
-                key={card.id}
-                card={card}
-                listId={list.id}
-                onClick={() => onCardClick(card)}
-                labels={cardLabelsMap[card.id] ?? []}
-              />
-            ))}
-          </SortableContext>
+        <SortableContext items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+          {cards.map((card) => (
+            <CardItem key={card.id} card={card} listId={list.id} onClick={() => onCardClick(card)} />
+          ))}
+        </SortableContext>
         {cards.length === 0 && !addingCard && (
           <p className="py-3 text-center text-xs text-muted-foreground select-none">
             No cards yet

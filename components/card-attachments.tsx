@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Trash2, Loader2, Paperclip, Film } from "lucide-react";
+import { FileText, Trash2, Loader2, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { saveAttachment, deleteAttachment } from "@/app/actions/attachment";
 import { UploadButton } from "@/lib/uploadthing";
@@ -11,12 +11,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function getAttachmentType(mimeType: string): "image" | "video" | "document" {
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType.startsWith("video/")) return "video";
-  return "document";
 }
 
 interface CardAttachmentsProps {
@@ -64,13 +58,12 @@ export function CardAttachments({
                 type: file.type,
               });
               if (!result.success) { toast.error(result.error); continue; }
-              const attType = getAttachmentType(file.type);
               setAttachmentList((prev) => [
                 ...prev,
                 {
                   id: crypto.randomUUID(),
                   url: file.ufsUrl,
-                  type: attType,
+                  type: file.type.startsWith("image/") ? "image" : "document",
                   fileName: file.name,
                   size: file.size,
                   createdAt: new Date(),
@@ -90,41 +83,31 @@ export function CardAttachments({
       )}
 
       <div className="space-y-2">
-{attachmentList.map((att) => (
-            <div
-              key={att.id}
-              className="flex items-center gap-3 rounded-lg border border-border/50 bg-background p-2"
-            >
-              {att.type === "image" ? (
-                <a href={att.url} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                  <div className="h-12 w-16 rounded overflow-hidden border border-border bg-muted">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={att.url}
-                      alt={att.fileName}
-                      className="h-full w-full object-cover"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display = "none";
-                        (e.currentTarget.parentElement as HTMLElement).classList.add("flex", "items-center", "justify-center");
-                      }}
-                    />
-                  </div>
-                </a>
-              ) : att.type === "video" ? (
-                <div className="shrink-0">
-                  <video
+        {attachmentList.map((att) => (
+          <div
+            key={att.id}
+            className="flex items-center gap-3 rounded-lg border border-border/50 bg-background p-2"
+          >
+            {att.type === "image" ? (
+              <a href={att.url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                <div className="h-12 w-16 rounded overflow-hidden border border-border bg-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
                     src={att.url}
-                    className="h-12 w-20 rounded border border-border bg-muted"
-                    controls
-                    preload="metadata"
-                    muted
+                    alt={att.fileName}
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = "none";
+                      (e.currentTarget.parentElement as HTMLElement).classList.add("flex", "items-center", "justify-center");
+                    }}
                   />
                 </div>
-              ) : (
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  {att.type === "document" ? <FileText className="h-5 w-5" /> : <Film className="h-5 w-5" />}
-                </div>
-              )}
+              </a>
+            ) : (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <FileText className="h-5 w-5" />
+              </div>
+            )}
 
             <div className="flex-1 min-w-0">
               <a
