@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { attachments, cards, lists, boards, workspaceMembers, users } from "@/db/schema";
 import { getSession } from "@/lib/auth";
 import { UTApi } from "uploadthing/server";
+import { MAX_VIDEO_BYTES, ALLOWED_VIDEO_TYPES } from "@/lib/video";
 
 export type AttachmentActionResult =
   | { success: true }
@@ -32,11 +33,22 @@ export async function saveAttachment(
   if (!member) return { success: false, error: "Card not found." };
 
   const isImage = /^image\//.test(file.type);
+  const isVideo = /^video\//.test(file.type);
+
+  // Re-validate videos server-side (client also checks before upload).
+  if (isVideo) {
+    if (!ALLOWED_VIDEO_TYPES.includes(file.type)) {
+      return { success: false, error: "Unsupported video format. Use MP4, MOV, or WebM." };
+    }
+    if (file.size > MAX_VIDEO_BYTES) {
+      return { success: false, error: "Videos must be 15MB or smaller." };
+    }
+  }
 
   await db.insert(attachments).values({
     cardId,
     url: file.url,
-    type: isImage ? "image" : "document",
+    type: isImage ? "image" : isVideo ? "video" : "document",
     fileName: file.name,
     size: file.size,
     uploadedByUserId: session.userId,

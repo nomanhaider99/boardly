@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { cards, lists, boards, workspaceMembers, comments, users } from "@/db/schema";
+import { cards, lists, boards, workspaceMembers, comments, users, boardMembers } from "@/db/schema";
 import { getSession } from "@/lib/auth";
 
 export type CardActionResult =
@@ -37,6 +37,38 @@ async function assertListMember(listId: string, userId: string) {
     .limit(1);
   return m ?? null;
 }
+
+// Whether the user may move cards on the given board. Owners always can;
+// members are governed by board_members.can_move_cards (default true).
+async function canMoveCardsOnBoard(boardId: string, userId: string): Promise<boolean> {
+  const [board] = await db
+    .select({ workspaceId: boards.workspaceId })
+    .from(boards)
+    .where(eq(boards.id, boardId))
+    .limit(1);
+  if (!board) return false;
+
+  const [wm] = await db
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.workspaceId, board.workspaceId), eq(workspaceMembers.userId, userId)))
+    .limit(1);
+  if (wm?.role === "owner") return true;
+
+  const [bm] = await db
+    .select({ canMoveCards: boardMembers.canMoveCards })
+    .from(boardMembers)
+    .where(and(eq(boardMembers.boardId, boardId), eq(boardMembers.userId, userId)))
+    .limit(1);
+  return bm?.canMoveCards ?? true;
+}
+
+async function boardIdForList(listId: string): Promise<string | null> {
+  const [l] = await db.select({ boardId: lists.boardId }).from(lists).where(eq(lists.id, listId)).limit(1);
+  return l?.boardId ?? null;
+}
+
+const MOVE_DENIED = "You don't have permission to move cards on this board.";
 
 export async function createCard(
   listId: string,
@@ -131,6 +163,11 @@ export async function moveCard(
   const member = await assertListMember(targetListId, session.userId);
   if (!member) return { success: false, error: "Not authorized." };
 
+  const boardId = await boardIdForList(targetListId);
+  if (boardId && !(await canMoveCardsOnBoard(boardId, session.userId))) {
+    return { success: false, error: MOVE_DENIED };
+  }
+
   await db
     .update(cards)
     .set({ listId: targetListId, position: newPosition })
@@ -149,6 +186,10 @@ export async function reorderCards(
 
   const member = await assertListMember(listId, session.userId);
   if (!member) return { success: false, error: "Not authorized." };
+
+  if (!(await canMoveCardsOnBoard(boardId, session.userId))) {
+    return { success: false, error: MOVE_DENIED };
+  }
 
   await Promise.all(
     orderedIds.map((id, index) =>
@@ -171,6 +212,11 @@ export async function moveCrossListCard(
 
   const member = await assertListMember(toListId, session.userId);
   if (!member) return { success: false, error: "Not authorized." };
+
+  const boardId = await boardIdForList(toListId);
+  if (boardId && !(await canMoveCardsOnBoard(boardId, session.userId))) {
+    return { success: false, error: MOVE_DENIED };
+  }
 
   const [[fromList], [toList], [mover]] = await Promise.all([
     db.select({ title: lists.title }).from(lists).where(eq(lists.id, fromListId)).limit(1),

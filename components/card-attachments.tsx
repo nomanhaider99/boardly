@@ -5,7 +5,14 @@ import { FileText, Trash2, Loader2, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { saveAttachment, deleteAttachment } from "@/app/actions/attachment";
 import { UploadButton } from "@/lib/uploadthing";
+import { validateVideoFile } from "@/lib/video";
 import type { AttachmentWithUploader } from "@/app/actions/attachment";
+
+function attachmentType(mime: string): "image" | "video" | "document" {
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  return "document";
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -49,6 +56,16 @@ export function CardAttachments({
             button: "ut-ready:bg-primary ut-ready:text-primary-foreground ut-uploading:bg-primary/70 text-xs h-7 px-3 rounded-lg font-medium",
             allowedContent: "hidden",
           }}
+          onBeforeUploadBegin={(files) => {
+            // Client-side video validation (15MB, mp4/mov/webm) before upload.
+            const allowed: File[] = [];
+            for (const file of files) {
+              const err = validateVideoFile(file);
+              if (err) { toast.error(err); continue; }
+              allowed.push(file);
+            }
+            return allowed;
+          }}
           onClientUploadComplete={async (files) => {
             for (const file of files) {
               const result = await saveAttachment(cardId, {
@@ -63,7 +80,7 @@ export function CardAttachments({
                 {
                   id: crypto.randomUUID(),
                   url: file.ufsUrl,
-                  type: file.type.startsWith("image/") ? "image" : "document",
+                  type: attachmentType(file.type),
                   fileName: file.name,
                   size: file.size,
                   createdAt: new Date(),
@@ -83,7 +100,50 @@ export function CardAttachments({
       )}
 
       <div className="space-y-2">
-        {attachmentList.map((att) => (
+        {attachmentList.map((att) =>
+          att.type === "video" ? (
+            // Inline video player
+            <div
+              key={att.id}
+              className="rounded-lg border border-border/50 bg-background p-2 space-y-2"
+            >
+              <video
+                src={att.url}
+                controls
+                preload="metadata"
+                className="w-full max-h-64 rounded-md bg-black"
+              />
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <a
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-medium hover:text-primary transition-colors truncate block"
+                  >
+                    {att.fileName}
+                  </a>
+                  <p className="text-[10px] text-muted-foreground">
+                    {formatBytes(att.size)} · by {att.uploaderFirstName}
+                  </p>
+                </div>
+                {att.uploadedByUserId === currentUserId && (
+                  <button
+                    onClick={() => handleDelete(att.id)}
+                    disabled={deletingId === att.id}
+                    className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+                    aria-label="Remove attachment"
+                  >
+                    {deletingId === att.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
           <div
             key={att.id}
             className="flex items-center gap-3 rounded-lg border border-border/50 bg-background p-2"

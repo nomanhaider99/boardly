@@ -25,8 +25,9 @@ import { reorderCards, moveCrossListCard } from "@/app/actions/card";
 import { ListColumn } from "@/components/list-column";
 import { CardDetailDialog } from "@/components/card-detail-sheet";
 import { AddListInline } from "@/components/add-list-inline";
-import { BoardMembersPanel } from "@/components/board-members-panel";
-import type { List, Card } from "@/db/schema";
+import { BoardSettingsDialog } from "@/components/board-settings-dialog";
+import { resolveBackground } from "@/lib/board-backgrounds";
+import type { List, Card, CardLabel } from "@/db/schema";
 
 type CardsUpdatedPayload = {
   lists: Array<{ listId: string; cardIds: string[] }>;
@@ -40,14 +41,49 @@ interface BoardViewProps {
   isOwner: boolean;
   initialLists: List[];
   initialCards: CardsByList;
+  initialLabels: CardLabel[];
+  initialCardLabels: Record<string, string[]>;
+  canMoveCards: boolean;
+  backgroundValue: string | null;
 }
 
-export function BoardView({ boardId, currentUserId, isOwner, initialLists, initialCards }: BoardViewProps) {
+export function BoardView({
+  boardId,
+  currentUserId,
+  isOwner,
+  initialLists,
+  initialCards,
+  initialLabels,
+  initialCardLabels,
+  canMoveCards,
+  backgroundValue,
+}: BoardViewProps) {
   const [lists, setLists] = useState<List[]>(initialLists);
   const [cardsByList, setCardsByList] = useState<CardsByList>(initialCards);
+  const [labels, setLabels] = useState<CardLabel[]>(initialLabels);
+  const [cardLabelMap, setCardLabelMap] = useState<Record<string, string[]>>(initialCardLabels);
+  const [background, setBackground] = useState<string | null>(backgroundValue);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+
+  const labelsById = useMemo(
+    () => Object.fromEntries(labels.map((l) => [l.id, l])),
+    [labels]
+  );
+
+  const labelsForCard = useCallback(
+    (cardId: string): CardLabel[] =>
+      (cardLabelMap[cardId] ?? [])
+        .map((id) => labelsById[id])
+        .filter((l): l is CardLabel => !!l)
+        .sort((a, b) => (a.type !== b.type ? (a.type === "priority" ? -1 : 1) : a.position - b.position)),
+    [cardLabelMap, labelsById]
+  );
+
+  function handleCardLabelsChanged(cardId: string, labelIds: string[]) {
+    setCardLabelMap((prev) => ({ ...prev, [cardId]: labelIds }));
+  }
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -80,9 +116,13 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
   const activeCardIdRef = useRef<string | null>(null);
   useEffect(() => { activeCardIdRef.current = activeCardId; }, [activeCardId]);
 
+  // While a local drag save is in flight (and briefly after), skip the poll so
+  // it can't overwrite optimistic state with stale server data (snap-back).
+  const suppressPollRef = useRef(false);
+
   // Apply incoming real-time card updates (from other users)
   const applyCardsUpdated = useCallback((payload: CardsUpdatedPayload) => {
-    if (activeCardIdRef.current) return;
+    if (activeCardIdRef.current || suppressPollRef.current) return;
 
     setCardsByList((prev) => {
       const allCards = Object.fromEntries(
@@ -131,6 +171,7 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
   function onDragStart(event: DragStartEvent) {
     const { id, data } = event.active;
     if (data.current?.type === "card") {
+      if (!canMoveCards) return;
       setActiveCardId(String(id));
       fromListRef.current = findCardList(String(id));
     }
@@ -138,6 +179,7 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
   }
 
   function onDragOver(event: DragOverEvent) {
+    if (!canMoveCards) return;
     const { active, over } = event;
     if (!over) return;
     if (active.data.current?.type !== "card") return;
@@ -172,6 +214,11 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
     const dragFromList = fromListRef.current;
     fromListRef.current = null;
 
+    // Suppress the 5s poll from clobbering optimistic state during the drop's
+    // async save (and briefly after) — otherwise the card snaps back.
+    suppressPollRef.current = true;
+    try {
+
     if (!over) {
       overListRef.current = null;
       return;
@@ -196,6 +243,7 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
 
     // ── Card reorder / move ──
     if (active.data.current?.type === "card") {
+      if (!canMoveCards) { overListRef.current = null; return; }
       const targetList = overListRef.current ?? findCardList(String(active.id));
       overListRef.current = null;
       if (!targetList) return;
@@ -236,6 +284,10 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
           setCardsByList(initialCards);
         }
       }
+    }
+    } finally {
+      // keep suppressing just past the save so the next poll sees fresh data
+      setTimeout(() => { suppressPollRef.current = false; }, 2000);
     }
   }
 
@@ -295,7 +347,14 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
       {/* Top bar — Members button + centered search */}
       <div className="shrink-0 flex items-center pb-3">
         <div className="flex-1">
-          <BoardMembersPanel boardId={boardId} isOwner={isOwner} />
+          <BoardSettingsDialog
+            boardId={boardId}
+            isOwner={isOwner}
+            labels={labels}
+            onLabelsChange={setLabels}
+            background={background}
+            onBackgroundChange={setBackground}
+          />
         </div>
         {lists.length > 0 && (
           <div className="relative w-96">
@@ -343,7 +402,10 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
       </div>
 
       {/* Board content */}
-      <div className="flex-1 min-h-0">
+      <div
+        className="flex-1 min-h-0 rounded-xl p-3 transition-colors"
+        style={{ background: resolveBackground(background) }}
+      >
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
@@ -370,6 +432,8 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
                     key={list.id}
                     list={list}
                     cards={cardsByList[list.id] ?? []}
+                    canMoveCards={canMoveCards}
+                    labelsForCard={labelsForCard}
                     onCardClick={setSelectedCard}
                     onCardAdded={(card) => onCardAdded(list.id, card)}
                     onListDeleted={onListDeleted}
@@ -395,6 +459,10 @@ export function BoardView({ boardId, currentUserId, isOwner, initialLists, initi
         card={selectedCard}
         boardId={boardId}
         currentUserId={currentUserId}
+        boardLabels={labels}
+        onBoardLabelsChange={setLabels}
+        cardLabelIds={selectedCard ? cardLabelMap[selectedCard.id] ?? [] : []}
+        onCardLabelsChanged={handleCardLabelsChanged}
         onClose={() => setSelectedCard(null)}
         onDeleted={onCardDeleted}
         onUpdated={onCardUpdated}

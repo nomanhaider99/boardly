@@ -26,6 +26,7 @@ export const ourFileRouter = {
 
   chatFile: f({
     image: { maxFileSize: "8MB", maxFileCount: 1 },
+    video: { maxFileSize: "16MB", maxFileCount: 1 },
     pdf: { maxFileSize: "16MB", maxFileCount: 1 },
     "application/msword": { maxFileSize: "16MB" },
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": { maxFileSize: "16MB" },
@@ -42,6 +43,7 @@ export const ourFileRouter = {
 
   cardAttachment: f({
     image: { maxFileSize: "8MB", maxFileCount: 4 },
+    video: { maxFileSize: "16MB", maxFileCount: 2 },
     pdf: { maxFileSize: "16MB", maxFileCount: 4 },
     "application/msword": { maxFileSize: "16MB" },
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": { maxFileSize: "16MB" },

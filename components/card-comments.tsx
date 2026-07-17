@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition, useRef, useEffect } from "react";
-import { Loader2, Trash2, Send, ArrowRight } from "lucide-react";
+import { useState, useTransition, useRef, useEffect, useMemo } from "react";
+import { Loader2, Trash2, Send, ArrowRight, Search, X, Pencil, Check } from "lucide-react";
 import { toast } from "sonner";
-import { addComment, deleteComment } from "@/app/actions/comment";
+import { addComment, deleteComment, editComment } from "@/app/actions/comment";
 import { Button } from "@/components/ui/button";
 import type { CommentWithUser, MemberForMention } from "@/app/actions/comment";
 
@@ -15,7 +15,43 @@ function timeAgo(date: Date): string {
   return new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function renderBody(text: string) {
+function formatEdited(date: Date): string {
+  return new Date(date).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Highlight a search term inside a plain-text segment.
+function highlightSegment(text: string, query: string, keyPrefix: string) {
+  const q = query.trim();
+  if (!q) return <span key={keyPrefix}>{text}</span>;
+  const re = new RegExp(`(${escapeRegExp(q)})`, "ig");
+  const segs = text.split(re);
+  return (
+    <span key={keyPrefix}>
+      {segs.map((seg, j) =>
+        seg && q && seg.toLowerCase() === q.toLowerCase() ? (
+          <mark key={j} className="rounded bg-yellow-300/60 dark:bg-yellow-400/30 px-0.5 text-inherit">
+            {seg}
+          </mark>
+        ) : (
+          <span key={j}>{seg}</span>
+        )
+      )}
+    </span>
+  );
+}
+
+// Render a comment body: highlight @mentions, and optionally a search query.
+function renderBody(text: string, query = "") {
   const parts = text.split(/(@[A-Za-z]\w*)/g);
   return parts.map((part, i) =>
     /^@[A-Za-z]\w*$/.test(part) ? (
@@ -23,7 +59,7 @@ function renderBody(text: string) {
         {part}
       </span>
     ) : (
-      <span key={i}>{part}</span>
+      highlightSegment(part, query, `s${i}`)
     )
   );
 }
@@ -50,7 +86,17 @@ export function CardComments({
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [submitting, startSubmit] = useTransition();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Edit state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Search state
+  const [search, setSearch] = useState("");
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
 
   // Auto-resize textarea to fit content
   useEffect(() => {
@@ -59,6 +105,25 @@ export function CardComments({
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }, [body]);
+
+  const query = search.trim().toLowerCase();
+
+  // Comments that match the search (system rows excluded from search)
+  const visibleComments = useMemo(() => {
+    if (!query) return commentList;
+    return commentList.filter(
+      (c) => !c.isSystem && c.body.toLowerCase().includes(query)
+    );
+  }, [commentList, query]);
+
+  const matchCount = query ? visibleComments.length : 0;
+
+  // Scroll the first match into view when the query changes
+  useEffect(() => {
+    if (query && threadRef.current) {
+      threadRef.current.scrollTop = 0;
+    }
+  }, [query]);
 
   const filteredMembers =
     mentionState !== null
@@ -153,6 +218,7 @@ export function CardComments({
           id: result.commentId!,
           body: trimmed,
           createdAt: new Date(),
+          editedAt: null,
           userId: currentUserId,
           firstName: "You",
           lastName: "",
@@ -174,11 +240,65 @@ export function CardComments({
     setCommentList((prev) => prev.filter((c) => c.id !== id));
   }
 
+  function startEdit(comment: CommentWithUser) {
+    setEditingId(comment.id);
+    setEditDraft(comment.body);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDraft("");
+  }
+
+  async function saveEdit(id: string) {
+    const trimmed = editDraft.trim();
+    if (!trimmed) return;
+    setSavingEdit(true);
+    const result = await editComment(id, trimmed);
+    setSavingEdit(false);
+    if (!result.success) { toast.error(result.error); return; }
+    const now = new Date();
+    setCommentList((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, body: trimmed, editedAt: now } : c))
+    );
+    setEditingId(null);
+    setEditDraft("");
+    toast.success("Comment updated.");
+  }
+
+  const nonSystemCount = commentList.filter((c) => !c.isSystem).length;
+
   return (
     <div className="space-y-4">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Comments ({commentList.filter((c) => !c.isSystem).length})
+        Comments ({nonSystemCount})
       </h3>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search comments…"
+          className="w-full h-8 rounded-lg border border-input bg-background pl-8 pr-7 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-colors"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Clear comment search"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {query && (
+        <p className="text-[11px] text-muted-foreground -mt-2">
+          {matchCount === 0 ? "No matching comments." : `${matchCount} matching comment${matchCount === 1 ? "" : "s"}.`}
+        </p>
+      )}
 
       {/* Composer */}
       <form onSubmit={handleSubmit} className="space-y-2">
@@ -225,9 +345,9 @@ export function CardComments({
       </form>
 
       {/* Thread — newest first */}
-      {commentList.length > 0 && (
-        <div className="space-y-2">
-          {commentList.map((comment) =>
+      {visibleComments.length > 0 && (
+        <div ref={threadRef} className="space-y-2">
+          {visibleComments.map((comment) =>
             comment.isSystem ? (
               // Activity row
               <div key={comment.id} className="flex items-start gap-2 py-1 px-1">
@@ -252,24 +372,71 @@ export function CardComments({
                   <span className="text-[10px] text-muted-foreground">
                     {timeAgo(comment.createdAt)}
                   </span>
-                  {comment.userId === currentUserId && (
-                    <button
-                      onClick={() => handleDelete(comment.id)}
-                      disabled={deletingId === comment.id}
-                      className="ml-auto text-muted-foreground hover:text-destructive transition-colors"
-                      aria-label="Delete comment"
-                    >
-                      {deletingId === comment.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3 w-3" />
-                      )}
-                    </button>
+                  {comment.userId === currentUserId && editingId !== comment.id && (
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <button
+                        onClick={() => startEdit(comment)}
+                        className="text-muted-foreground hover:text-primary transition-colors"
+                        aria-label="Edit comment"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(comment.id)}
+                        disabled={deletingId === comment.id}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                        aria-label="Delete comment"
+                      >
+                        {deletingId === comment.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                      </button>
+                    </div>
                   )}
                 </div>
-                <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap break-words pl-8">
-                  {renderBody(comment.body)}
-                </p>
+
+                {editingId === comment.id ? (
+                  <div className="space-y-2 pl-8">
+                    <textarea
+                      autoFocus
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring/50"
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") cancelEdit();
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveEdit(comment.id);
+                      }}
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => saveEdit(comment.id)}
+                        disabled={savingEdit || !editDraft.trim()}
+                        className="h-7 gap-1.5 text-xs"
+                      >
+                        {savingEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                        Save
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={cancelEdit} className="h-7 text-xs">
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap break-words pl-8">
+                      {renderBody(comment.body, query)}
+                    </p>
+                    {comment.editedAt && (
+                      <p className="pl-8 text-[10px] text-muted-foreground/70 italic">
+                        Edited on {formatEdited(comment.editedAt)}
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             )
           )}
