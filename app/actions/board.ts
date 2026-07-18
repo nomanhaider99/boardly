@@ -4,8 +4,10 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { boards, workspaceMembers, users, boardMemberLabels } from "@/db/schema";
+import { boards, workspaceMembers, users, boardMemberLabels, boardMembers } from "@/db/schema";
 import { getSession } from "@/lib/auth";
+import { seedPriorityLabels } from "@/app/actions/label";
+import { pickDefaultBackground } from "@/lib/board-backgrounds";
 
 export type BoardActionResult =
   | { success: true; boardId: string }
@@ -18,8 +20,10 @@ export type MemberWithBoardLabel = {
   firstName: string;
   lastName: string;
   email: string;
+  role: "owner" | "member";
   workspaceRoleLabel: string | null;
   boardLabel: string | null;
+  canMoveCards: boolean;
 };
 
 async function getWorkspaceIdForBoard(boardId: string): Promise<string | null> {
@@ -55,6 +59,7 @@ export async function getBoardMemberLabels(boardId: string): Promise<MemberWithB
       firstName: users.firstName,
       lastName: users.lastName,
       email: users.email,
+      role: workspaceMembers.role,
       workspaceRoleLabel: workspaceMembers.roleLabel,
     })
     .from(workspaceMembers)
@@ -66,9 +71,69 @@ export async function getBoardMemberLabels(boardId: string): Promise<MemberWithB
     .from(boardMemberLabels)
     .where(eq(boardMemberLabels.boardId, boardId));
 
-  const labelMap = Object.fromEntries(labels.map((l) => [l.userId, l.label]));
+  const moveSettings = await db
+    .select({ userId: boardMembers.userId, canMoveCards: boardMembers.canMoveCards })
+    .from(boardMembers)
+    .where(eq(boardMembers.boardId, boardId));
 
-  return members.map((m) => ({ ...m, boardLabel: labelMap[m.userId] ?? null }));
+  const labelMap = Object.fromEntries(labels.map((l) => [l.userId, l.label]));
+  const moveMap = Object.fromEntries(moveSettings.map((m) => [m.userId, m.canMoveCards]));
+
+  return members.map((m) => ({
+    ...m,
+    role: m.role as "owner" | "member",
+    boardLabel: labelMap[m.userId] ?? null,
+    canMoveCards: moveMap[m.userId] ?? true,
+  }));
+}
+
+// Whether a user is allowed to move cards on a board. Owners always can.
+export async function canUserMoveCards(boardId: string, userId: string): Promise<boolean> {
+  if (await assertBoardOwner(boardId, userId)) return true;
+  const [row] = await db
+    .select({ canMoveCards: boardMembers.canMoveCards })
+    .from(boardMembers)
+    .where(and(eq(boardMembers.boardId, boardId), eq(boardMembers.userId, userId)))
+    .limit(1);
+  return row?.canMoveCards ?? true;
+}
+
+// Owner-only: toggle whether a member may move cards on this board.
+export async function setMemberCanMoveCards(
+  boardId: string,
+  targetUserId: string,
+  canMove: boolean
+): Promise<BoardLabelResult> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const isOwner = await assertBoardOwner(boardId, session.userId);
+  if (!isOwner) return { success: false, error: "Only workspace owners can change move permissions." };
+
+  await db
+    .insert(boardMembers)
+    .values({ boardId, userId: targetUserId, canMoveCards: canMove })
+    .onConflictDoUpdate({
+      target: [boardMembers.boardId, boardMembers.userId],
+      set: { canMoveCards: canMove },
+    });
+
+  return { success: true };
+}
+
+// Update the board's background (owner-only).
+export async function setBoardBackground(
+  boardId: string,
+  value: string | null
+): Promise<BoardLabelResult> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const isOwner = await assertBoardOwner(boardId, session.userId);
+  if (!isOwner) return { success: false, error: "Only workspace owners can change the background." };
+
+  await db.update(boards).set({ backgroundImageUrl: value }).where(eq(boards.id, boardId));
+  return { success: true };
 }
 
 export async function setBoardMemberLabel(
@@ -132,8 +197,11 @@ export async function createBoard(
 
   const [board] = await db
     .insert(boards)
-    .values({ workspaceId, name: name.data })
+    .values({ workspaceId, name: name.data, backgroundImageUrl: pickDefaultBackground() })
     .returning({ id: boards.id });
+
+  // Seed built-in priority labels so every board has them out of the box.
+  await seedPriorityLabels(board.id);
 
   return { success: true, boardId: board.id };
 }
@@ -149,6 +217,23 @@ export async function getBoards(workspaceId: string) {
     .select()
     .from(boards)
     .where(eq(boards.workspaceId, workspaceId));
+}
+
+export async function renameBoard(
+  boardId: string,
+  name: string
+): Promise<{ success: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const parsed = z.string().min(1).max(80).safeParse(name.trim());
+  if (!parsed.success) return { success: false, error: "Board name is required (max 80 chars)." };
+
+  const isOwner = await assertBoardOwner(boardId, session.userId);
+  if (!isOwner) return { success: false, error: "Only workspace owners can rename the board." };
+
+  await db.update(boards).set({ name: parsed.data }).where(eq(boards.id, boardId));
+  return { success: true };
 }
 
 export async function deleteBoard(boardId: string): Promise<{ success: boolean; error?: string }> {

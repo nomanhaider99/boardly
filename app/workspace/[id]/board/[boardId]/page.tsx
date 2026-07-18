@@ -8,6 +8,8 @@ import { BoardView, type CardsByList } from "@/components/board-view";
 import { AgentPanelController } from "@/components/agent-panel-controller";
 import { ChatPanel } from "@/components/chat-panel";
 import { TrelloImportDialog } from "@/components/trello-import-dialog";
+import { getBoardLabels, getBoardCardLabelMap } from "@/app/actions/label";
+import { canUserMoveCards } from "@/app/actions/board";
 import type { List } from "@/db/schema";
 
 export default async function BoardPage({
@@ -61,6 +63,12 @@ export default async function BoardPage({
     }
   }
 
+  const [boardLabels, cardLabelMap, canMoveCards] = await Promise.all([
+    getBoardLabels(boardId),
+    getBoardCardLabelMap(boardId),
+    canUserMoveCards(boardId, session.userId),
+  ]);
+
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       <header className="flex items-center gap-3 border-b border-border/40 bg-background/80 backdrop-blur-md px-5 py-3 shrink-0">
@@ -79,6 +87,10 @@ export default async function BoardPage({
           isOwner={workspace.currentUserRole === "owner"}
           initialLists={boardLists as List[]}
           initialCards={cardsByList}
+          initialLabels={boardLabels}
+          initialCardLabels={cardLabelMap}
+          canMoveCards={canMoveCards}
+          backgroundValue={board.backgroundImageUrl}
         />
       </div>
 

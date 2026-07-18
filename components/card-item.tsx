@@ -5,17 +5,20 @@ import { CSS } from "@dnd-kit/utilities";
 import { Calendar } from "lucide-react";
 import Image from "next/image";
 import { getUrgency, urgencyConfig } from "@/lib/due-date";
-import type { Card } from "@/db/schema";
+import { LabelPill } from "@/components/card-label";
+import type { Card, CardLabel } from "@/db/schema";
 
 interface CardItemProps {
   card: Card;
   listId: string;
+  labels?: CardLabel[];
+  dragDisabled?: boolean;
   onClick: () => void;
 }
 
-export function CardItem({ card, listId, onClick }: CardItemProps) {
+export function CardItem({ card, listId, labels = [], dragDisabled = false, onClick }: CardItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: card.id, data: { type: "card", listId } });
+    useSortable({ id: card.id, data: { type: "card", listId }, disabled: dragDisabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -52,6 +55,14 @@ export function CardItem({ card, listId, onClick }: CardItemProps) {
       )}
 
       <div className="px-3 py-2.5 space-y-1.5">
+        {labels.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {labels.map((l) => (
+              <LabelPill key={l.id} label={l} size="sm" />
+            ))}
+          </div>
+        )}
+
         <p className="text-sm font-medium leading-snug">{card.title}</p>
 
         <div className="flex items-center gap-2 flex-wrap">

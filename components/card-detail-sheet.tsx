@@ -8,12 +8,17 @@ import { updateCard, deleteCard } from "@/app/actions/card";
 import { getCardComments, getCardWorkspaceMembers } from "@/app/actions/comment";
 import { getCardAttachments } from "@/app/actions/attachment";
 import { getBoardMemberLabels } from "@/app/actions/board";
+import { getLinkPreview } from "@/app/actions/link-preview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { CardComments } from "@/components/card-comments";
 import { CardAttachments } from "@/components/card-attachments";
+import { LabelPicker } from "@/components/label-picker";
+import { CredentialsSection } from "@/components/credentials-dialog";
+import { getCardCredentialsMeta, type CredentialMeta } from "@/app/actions/credential";
+import type { CardLabel } from "@/db/schema";
 import { useUploadThing } from "@/lib/uploadthing";
 import { getUrgency, urgencyConfig } from "@/lib/due-date";
 import type { Card } from "@/db/schema";
@@ -24,29 +29,43 @@ type EditField = "title" | "description" | "dueDate" | null;
 
 function FaviconLink({ url }: { url: string }) {
   const [iconError, setIconError] = useState(false);
+  const [title, setTitle] = useState<string | null>(null);
   let hostname = url;
   try { hostname = new URL(url).hostname.replace(/^www\./, ""); } catch {}
   const faviconSrc = `https://www.google.com/s2/favicons?domain=${hostname}&sz=16`;
+
+  // Fetch the page title server-side (link unfurling). Falls back to hostname.
+  useEffect(() => {
+    let cancelled = false;
+    getLinkPreview(url)
+      .then((p) => { if (!cancelled && p.title) setTitle(p.title); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [url]);
+
+  const label = title ?? hostname;
+
   return (
     <a
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-primary underline underline-offset-2 hover:text-primary/80 transition-colors cursor-pointer max-w-full"
+      className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 align-middle text-primary hover:bg-muted hover:text-primary/90 transition-colors cursor-pointer max-w-full"
       onClick={(e) => e.stopPropagation()}
+      title={url}
     >
       {!iconError && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={faviconSrc}
           alt=""
-          width={13}
-          height={13}
-          className="shrink-0 rounded-[2px] mt-px"
+          width={14}
+          height={14}
+          className="shrink-0 rounded-[2px]"
           onError={() => setIconError(true)}
         />
       )}
-      <span className="truncate max-w-[320px]" title={url}>{hostname}</span>
+      <span className="truncate max-w-[340px] font-medium">{label}</span>
     </a>
   );
 }
@@ -70,6 +89,10 @@ interface CardDetailDialogProps {
   card: Card | null;
   boardId: string;
   currentUserId: string;
+  boardLabels: CardLabel[];
+  onBoardLabelsChange: (labels: CardLabel[]) => void;
+  cardLabelIds: string[];
+  onCardLabelsChanged: (cardId: string, labelIds: string[]) => void;
   onClose: () => void;
   onDeleted: (cardId: string) => void;
   onUpdated: (card: Card) => void;
@@ -79,6 +102,10 @@ export function CardDetailDialog({
   card,
   boardId,
   currentUserId,
+  boardLabels,
+  onBoardLabelsChange,
+  cardLabelIds,
+  onCardLabelsChanged,
   onClose,
   onDeleted,
   onUpdated,
@@ -94,6 +121,7 @@ export function CardDetailDialog({
   const [attachments, setAttachments] = useState<AttachmentWithUploader[]>([]);
   const [members, setMembers] = useState<MemberForMention[]>([]);
   const [boardLabelMap, setBoardLabelMap] = useState<Record<string, string>>({});
+  const [credentials, setCredentials] = useState<CredentialMeta[]>([]);
   const [loadingExtra, setLoadingExtra] = useState(false);
 
   const addCoverInputRef = useRef<HTMLInputElement>(null);
@@ -114,14 +142,16 @@ export function CardDetailDialog({
       getCardAttachments(card.id),
       getCardWorkspaceMembers(card.id),
       getBoardMemberLabels(boardId),
+      getCardCredentialsMeta(card.id),
     ])
-      .then(([c, a, m, labels]) => {
+      .then(([c, a, m, labels, creds]) => {
         setComments(c);
         setAttachments(a);
         setMembers(m);
         setBoardLabelMap(Object.fromEntries(
           labels.filter((l) => l.boardLabel).map((l) => [l.userId, l.boardLabel!])
         ));
+        setCredentials(creds);
       })
       .catch(() => toast.error("Failed to load card details."))
       .finally(() => setLoadingExtra(false));
@@ -388,8 +418,23 @@ export function CardDetailDialog({
             {/* Two-column body */}
             <div className="flex flex-1 min-h-0 overflow-hidden">
 
-              {/* Left column: description, due date, attachments */}
+              {/* Left column: credentials, labels, description, due date, attachments */}
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 min-w-0">
+
+                {/* Credentials — above the description, below the banner */}
+                {loadingExtra ? null : (
+                  <CredentialsSection cardId={card.id} initialCredentials={credentials} />
+                )}
+
+                {/* Labels */}
+                <LabelPicker
+                  boardId={boardId}
+                  cardId={card.id}
+                  boardLabels={boardLabels}
+                  assignedIds={cardLabelIds}
+                  onAssignedChange={(ids) => onCardLabelsChanged(card.id, ids)}
+                  onBoardLabelsChange={onBoardLabelsChange}
+                />
 
                 {/* Description */}
                 <div className="space-y-1.5">

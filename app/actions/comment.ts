@@ -60,6 +60,29 @@ export async function addComment(
   return { success: true, commentId: comment.id };
 }
 
+export async function editComment(
+  commentId: string,
+  body: string
+): Promise<CommentActionResult> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const parsed = z.string().min(1).max(2000).safeParse(body);
+  if (!parsed.success) return { success: false, error: "Comment body is required." };
+
+  const [comment] = await db.select().from(comments).where(eq(comments.id, commentId)).limit(1);
+  if (!comment) return { success: false, error: "Comment not found." };
+  if (comment.userId !== session.userId) return { success: false, error: "Not your comment." };
+  if (comment.isSystem) return { success: false, error: "System messages can't be edited." };
+
+  await db
+    .update(comments)
+    .set({ body: parsed.data, editedAt: new Date() })
+    .where(eq(comments.id, commentId));
+
+  return { success: true, commentId };
+}
+
 export async function deleteComment(commentId: string): Promise<CommentActionResult> {
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
@@ -76,6 +99,7 @@ export type CommentWithUser = {
   id: string;
   body: string;
   createdAt: Date;
+  editedAt: Date | null;
   userId: string;
   firstName: string;
   lastName: string;
@@ -88,6 +112,7 @@ export async function getCardComments(cardId: string): Promise<CommentWithUser[]
       id: comments.id,
       body: comments.body,
       createdAt: comments.createdAt,
+      editedAt: comments.editedAt,
       userId: comments.userId,
       firstName: users.firstName,
       lastName: users.lastName,
