@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, asc, desc, eq, gt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { boardMessages, boards, users, workspaceMembers } from "@/db/schema";
+import {
+  boardMessages,
+  boards,
+  chatGroupMembers,
+  chatGroups,
+  users,
+  workspaceMembers,
+} from "@/db/schema";
 import { getSession } from "@/lib/auth";
 
 async function assertBoardMember(boardId: string, userId: string) {
@@ -26,6 +33,26 @@ async function assertBoardMember(boardId: string, userId: string) {
   return member ?? null;
 }
 
+async function assertGroupMember(
+  boardId: string,
+  groupId: string,
+  userId: string
+) {
+  const [row] = await db
+    .select({ userId: chatGroupMembers.userId })
+    .from(chatGroupMembers)
+    .innerJoin(chatGroups, eq(chatGroupMembers.groupId, chatGroups.id))
+    .where(
+      and(
+        eq(chatGroupMembers.groupId, groupId),
+        eq(chatGroupMembers.userId, userId),
+        eq(chatGroups.boardId, boardId)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 // GET /api/board/[boardId]/chat?partner=<userId>&since=<ISO>
 export async function GET(
   req: NextRequest,
@@ -39,22 +66,37 @@ export async function GET(
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const partnerId = req.nextUrl.searchParams.get("partner");
-  if (!partnerId) return NextResponse.json({ error: "Missing partner" }, { status: 400 });
+  const groupId = req.nextUrl.searchParams.get("group");
+  if (!partnerId && !groupId)
+    return NextResponse.json({ error: "Missing partner or group" }, { status: 400 });
 
   const sinceParam = req.nextUrl.searchParams.get("since");
   const since = sinceParam ? new Date(sinceParam) : null;
 
   const me = session.userId;
-
   const fromAlias = users;
-  const dmFilter = and(
-    eq(boardMessages.boardId, boardId),
-    or(
-      and(eq(boardMessages.fromUserId, me), eq(boardMessages.toUserId, partnerId)),
-      and(eq(boardMessages.fromUserId, partnerId), eq(boardMessages.toUserId, me))
-    ),
-    since ? gt(boardMessages.createdAt, since) : undefined
-  );
+
+  let convFilter;
+  if (groupId) {
+    const gm = await assertGroupMember(boardId, groupId, me);
+    if (!gm) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    convFilter = and(
+      eq(boardMessages.boardId, boardId),
+      eq(boardMessages.groupId, groupId),
+      since ? gt(boardMessages.createdAt, since) : undefined
+    );
+  } else {
+    convFilter = and(
+      eq(boardMessages.boardId, boardId),
+      isNull(boardMessages.groupId),
+      or(
+        and(eq(boardMessages.fromUserId, me), eq(boardMessages.toUserId, partnerId!)),
+        and(eq(boardMessages.fromUserId, partnerId!), eq(boardMessages.toUserId, me))
+      ),
+      since ? gt(boardMessages.createdAt, since) : undefined
+    );
+  }
+  const dmFilter = convFilter;
 
   const rows = since
     ? await db
@@ -105,16 +147,29 @@ export async function POST(
 
   const raw = await req.json();
   const parsed = z
-    .object({ toUserId: z.string().uuid(), body: z.string().min(1).max(2000) })
+    .object({
+      toUserId: z.string().uuid().optional(),
+      groupId: z.string().uuid().optional(),
+      body: z.string().min(1).max(2000),
+    })
+    .refine((v) => !!v.toUserId !== !!v.groupId, {
+      message: "Provide exactly one of toUserId or groupId",
+    })
     .safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+
+  if (parsed.data.groupId) {
+    const gm = await assertGroupMember(boardId, parsed.data.groupId, session.userId);
+    if (!gm) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const [inserted] = await db
     .insert(boardMessages)
     .values({
       boardId,
       fromUserId: session.userId,
-      toUserId: parsed.data.toUserId,
+      toUserId: parsed.data.toUserId ?? null,
+      groupId: parsed.data.groupId ?? null,
       body: parsed.data.body,
     })
     .returning();

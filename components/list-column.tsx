@@ -95,7 +95,7 @@ export function ListColumn({
     <div
       ref={setNodeRef}
       style={style}
-      className="w-64 shrink-0 flex flex-col rounded-xl bg-card border border-border/50 max-h-[calc(100vh-180px)]"
+      className="w-64 shrink-0 flex flex-col rounded-xl bg-card/70 backdrop-blur-xl border border-white/10 shadow-lg shadow-black/10 max-h-[calc(100vh-180px)]"
     >
       {/* List header */}
       <div className="flex items-center gap-1 px-3 pt-3 pb-2">

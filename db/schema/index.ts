@@ -177,6 +177,34 @@ export const boardMembers = pgTable(
   (t) => [primaryKey({ columns: [t.boardId, t.userId] })]
 );
 
+export const chatGroups = pgTable("chat_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  boardId: uuid("board_id")
+    .notNull()
+    .references(() => boards.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdByUserId: uuid("created_by_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const chatGroupMembers = pgTable(
+  "chat_group_members",
+  {
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => chatGroups.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.userId] })]
+);
+
+// A message is either a direct message (toUserId set, groupId null) or a
+// group message (groupId set, toUserId null).
 export const boardMessages = pgTable("board_messages", {
   id: uuid("id").primaryKey().defaultRandom(),
   boardId: uuid("board_id")
@@ -185,9 +213,12 @@ export const boardMessages = pgTable("board_messages", {
   fromUserId: uuid("from_user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  toUserId: uuid("to_user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
+  toUserId: uuid("to_user_id").references(() => users.id, {
+    onDelete: "cascade",
+  }),
+  groupId: uuid("group_id").references(() => chatGroups.id, {
+    onDelete: "cascade",
+  }),
   body: text("body").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -287,3 +318,5 @@ export type Comment = typeof comments.$inferSelect;
 export type CommentMention = typeof commentMentions.$inferSelect;
 export type Attachment = typeof attachments.$inferSelect;
 export type BoardMessage = typeof boardMessages.$inferSelect;
+export type ChatGroup = typeof chatGroups.$inferSelect;
+export type ChatGroupMember = typeof chatGroupMembers.$inferSelect;

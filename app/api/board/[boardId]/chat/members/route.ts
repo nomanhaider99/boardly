@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { boardMessages, boards, users, workspaceMembers } from "@/db/schema";
 import { getSession } from "@/lib/auth";
@@ -59,6 +59,7 @@ export async function GET(
     .where(
       and(
         eq(boardMessages.boardId, boardId),
+        isNull(boardMessages.groupId),
         or(
           eq(boardMessages.fromUserId, session.userId),
           eq(boardMessages.toUserId, session.userId)
@@ -72,7 +73,7 @@ export async function GET(
   for (const msg of myDms) {
     const partnerId =
       msg.fromUserId === session.userId ? msg.toUserId : msg.fromUserId;
-    if (!lastByPartner[partnerId]) lastByPartner[partnerId] = msg;
+    if (partnerId && !lastByPartner[partnerId]) lastByPartner[partnerId] = msg;
   }
 
   const result = otherMembers.map((m) => ({
