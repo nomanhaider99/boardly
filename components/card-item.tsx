@@ -39,7 +39,7 @@ export function CardItem({ card, listId, labels = [], dragDisabled = false, onCl
       role="button"
       tabIndex={0}
       aria-label={`Open card: ${card.title}`}
-      className="group rounded-lg border border-border/50 bg-background cursor-pointer hover:border-primary/40 hover:shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 overflow-hidden"
+      className="group rounded-lg border border-white/10 bg-card/85 backdrop-blur-md cursor-pointer hover:border-primary/50 hover:-translate-y-0.5 hover:bg-card hover:shadow-lg hover:shadow-primary/15 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 overflow-hidden"
     >
       {card.bannerUrl && (
         <div className="relative h-40 w-full">

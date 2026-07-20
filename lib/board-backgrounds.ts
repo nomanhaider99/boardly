@@ -9,6 +9,7 @@ export type BoardBackground = {
 
 export const BOARD_BACKGROUNDS: BoardBackground[] = [
   { key: "photo", label: "Photo", value: "/background.webp" },
+  { key: "photo2", label: "Photo 2", value: "/background.jpg" },
   { key: "emerald", label: "Emerald", value: "linear-gradient(135deg, #059669 0%, #10b981 100%)" },
   { key: "ocean", label: "Ocean", value: "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)" },
   { key: "sunset", label: "Sunset", value: "linear-gradient(135deg, #f97316 0%, #f43f5e 100%)" },
