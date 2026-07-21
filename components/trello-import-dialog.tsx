@@ -23,14 +23,23 @@ type BoardPreview = {
   id: string; name: string; lists: TrelloListPreview[];
   totalCards: number; totalComments: number; totalAttachments: number;
 };
-type ImportResult = { lists: number; cards: number; comments: number; attachments: number };
+type ImportResult = {
+  lists: number; cards: number; comments: number; attachments: number;
+  covers?: number;
+};
 
-// Minimal extracted shape from Trello JSON export
+type JsonPreviewImg = { url: string; width?: number; height?: number };
+
+// Minimal extracted shape from Trello JSON export. Cover selection needs the
+// attachment id and preview widths, so both are carried through to the server.
 type JsonCard = {
   id: string; idList: string; name: string; desc: string;
   due: string | null; pos: number;
-  cover?: { scaled?: { url: string; height: number }[] } | null;
-  attachments?: { name: string; url: string; mimeType: string; bytes: number }[];
+  cover?: { idAttachment?: string | null; scaled?: JsonPreviewImg[] } | null;
+  attachments?: {
+    id?: string; name: string; url: string; mimeType: string; bytes: number;
+    previews?: JsonPreviewImg[];
+  }[];
 };
 type JsonAction = {
   date: string;
@@ -253,11 +262,21 @@ export function TrelloImportDialog({ boardId, boardName }: Props) {
               due: c.due ?? null,
               pos: c.pos,
               cover: c.cover ? {
-                scaled: ((c.cover as { scaled?: { url: string; height: number }[] }).scaled ?? [])
-                  .map(s => ({ url: s.url, height: s.height })),
+                idAttachment: (c.cover as { idAttachment?: string | null }).idAttachment ?? null,
+                scaled: ((c.cover as { scaled?: JsonPreviewImg[] }).scaled ?? [])
+                  .map(s => ({ url: s.url, width: s.width, height: s.height })),
               } : null,
-              attachments: ((c.attachments ?? []) as Array<{ name: string; url: string; mimeType: string; bytes: number }>)
-                .map(a => ({ name: a.name, url: a.url, mimeType: a.mimeType, bytes: a.bytes })),
+              attachments: ((c.attachments ?? []) as Array<{
+                id?: string; name: string; url: string; mimeType: string; bytes: number;
+                previews?: JsonPreviewImg[];
+              }>).map(a => ({
+                id: a.id,
+                name: a.name,
+                url: a.url,
+                mimeType: a.mimeType,
+                bytes: a.bytes,
+                previews: (a.previews ?? []).map(p => ({ url: p.url, width: p.width, height: p.height })),
+              })),
             }));
 
         const actions: JsonAction[] =
@@ -459,6 +478,11 @@ export function TrelloImportDialog({ boardId, boardName }: Props) {
                     {result.attachments > 0 && (
                       <span className="px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold">
                         {result.attachments} attachment{result.attachments !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                    {!!result.covers && result.covers > 0 && (
+                      <span className="px-3 py-1 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-400 text-xs font-semibold">
+                        {result.covers} cover{result.covers !== 1 ? "s" : ""}
                       </span>
                     )}
                   </div>

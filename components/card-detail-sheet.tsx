@@ -307,6 +307,9 @@ export function CardDetailDialog({
                   className="object-cover rounded-t-xl"
                   sizes="840px"
                   priority
+                  // Proxied Trello covers need the caller's session cookie,
+                  // which the image optimizer wouldn't send.
+                  unoptimized={card.bannerUrl.startsWith("/api/trello-asset")}
                 />
                 {/* Hover overlay */}
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/banner:opacity-100 transition-opacity rounded-t-xl flex items-end justify-end gap-2 p-3">
