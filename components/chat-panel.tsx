@@ -56,6 +56,23 @@ type ActiveConv =
   | { type: "dm"; member: Member }
   | { type: "group"; group: ChatGroup };
 
+type PresenceEntry = { online: boolean; lastSeenAt: string };
+
+/** userId → last known presence. Absent = never seen on this board. */
+type PresenceMap = Record<string, PresenceEntry>;
+
+type InboxMessage = {
+  id: string;
+  body: string;
+  createdAt: string;
+  fromUserId: string;
+  toUserId: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  firstName: string;
+  lastName: string;
+};
+
 type PendingFile = {
   url: string;
   name: string;
@@ -69,6 +86,11 @@ const AVATAR_COLORS = [
   "bg-violet-500", "bg-blue-500", "bg-emerald-500", "bg-amber-500",
   "bg-rose-500", "bg-cyan-500", "bg-fuchsia-500", "bg-orange-500",
 ];
+
+// Must stay comfortably under the server's PRESENCE_WINDOW_MS (60s) so a single
+// dropped beat doesn't flicker someone offline.
+const PRESENCE_HEARTBEAT_MS = 20_000;
+const INBOX_POLL_MS = 5_000;
 
 function avatarColor(id: string) {
   let h = 0;
@@ -94,6 +116,16 @@ function previewText(body: string) {
   return body
     .replace(/^!\[.*?\]\(.*?\)$/, "📷 Image")
     .replace(/^\[.*?\]\(.*?\)$/, "📎 File");
+}
+
+/** One-line summary of a message body for the new-message toast. */
+function notificationPreview(body: string) {
+  const text = body
+    .split("\n")
+    .map((l) => previewText(l.trim()))
+    .filter(Boolean)
+    .join(" ");
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text;
 }
 
 function formatPreviewTime(iso: string) {
@@ -124,6 +156,31 @@ function dateDivider(iso: string) {
   return d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 }
 
+// ── Presence ──────────────────────────────────────────────────────────────────
+
+/** Short status line: "Active now", "Active 5m ago", "Offline". */
+function presenceLabel(p: PresenceEntry | undefined) {
+  if (!p) return "Offline";
+  if (p.online) return "Active now";
+  const s = (Date.now() - new Date(p.lastSeenAt).getTime()) / 1000;
+  if (s < 3600) return `Active ${Math.max(1, Math.floor(s / 60))}m ago`;
+  if (s < 86400) return `Active ${Math.floor(s / 3600)}h ago`;
+  return `Active ${Math.floor(s / 86400)}d ago`;
+}
+
+function PresenceDot({ online, size = "md" }: { online: boolean; size?: "sm" | "md" }) {
+  return (
+    <span
+      title={online ? "Online" : "Offline"}
+      className={cn(
+        "absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-card transition-colors",
+        size === "sm" ? "h-2 w-2" : "h-2.5 w-2.5",
+        online ? "bg-emerald-500" : "bg-muted-foreground/40"
+      )}
+    />
+  );
+}
+
 // ── Avatar ────────────────────────────────────────────────────────────────────
 
 function Avatar({ userId, firstName, lastName, size = "md" }: {
@@ -137,6 +194,21 @@ function Avatar({ userId, firstName, lastName, size = "md" }: {
   return (
     <div className={cn("shrink-0 flex items-center justify-center rounded-full font-bold text-white", sz, avatarColor(userId))}>
       {initials(firstName, lastName)}
+    </div>
+  );
+}
+
+/** Avatar with a live online/offline badge in the corner. */
+function PresenceAvatar({
+  userId, firstName, lastName, size = "md", online,
+}: {
+  userId: string; firstName: string; lastName: string;
+  size?: "xs" | "sm" | "md" | "lg"; online: boolean;
+}) {
+  return (
+    <div className="relative shrink-0">
+      <Avatar userId={userId} firstName={firstName} lastName={lastName} size={size} />
+      <PresenceDot online={online} size={size === "xs" || size === "sm" ? "sm" : "md"} />
     </div>
   );
 }
@@ -242,6 +314,7 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
   const [linkMode, setLinkMode] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [unread, setUnread] = useState(0);
+  const [presence, setPresence] = useState<PresenceMap>({});
 
   // Group creation state
   const [creatingGroup, setCreatingGroup] = useState(false);
@@ -270,6 +343,10 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
   const latestAt = useRef<string | null>(null);
   const activeRef = useRef<ActiveConv | null>(null);
   const openRef = useRef(false);
+  // Server-clock cursor for the inbox poll; null until the first round-trip.
+  const inboxCursor = useRef<string | null>(null);
+  // Message ids already toasted, so a retry or overlap can't double-notify.
+  const notified = useRef<Set<string>>(new Set());
 
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { openRef.current = open; }, [open]);
@@ -292,6 +369,8 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
   // ── Fetch helpers ──────────────────────────────────────────────────────────
 
   const fetchList = useCallback(async () => {
+    let nextMembers: Member[] = [];
+    let nextGroups: ChatGroup[] = [];
     try {
       const [mr, gr] = await Promise.all([
         fetch(`/api/board/${boardId}/chat/members`),
@@ -299,13 +378,16 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
       ]);
       if (mr.ok) {
         const d: { members: Member[] } = await mr.json();
+        nextMembers = d.members;
         setMembers(d.members);
       }
       if (gr.ok) {
         const d: { groups: ChatGroup[] } = await gr.json();
+        nextGroups = d.groups;
         setGroups(d.groups);
       }
     } catch { /* ignore */ }
+    return { members: nextMembers, groups: nextGroups };
   }, [boardId]);
 
   const fetchConversation = useCallback(async (conv: ActiveConv) => {
@@ -323,6 +405,43 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
     finally { setLoadingMessages(false); }
   }, [boardId]);
 
+  const openConversation = useCallback((conv: ActiveConv) => {
+    setActive(conv);
+    setCreatingGroup(false);
+    setAddingMembers(false);
+    setGroupInfo(false);
+    setMessages([]);
+    setInput("");
+    setPendingFile(null);
+    setLinkMode(false);
+    fetchConversation(conv);
+  }, [fetchConversation]);
+
+  // ── New-message notifications ──────────────────────────────────────────────
+
+  /** Jump straight to the thread a toast came from, loading the list if needed. */
+  const openFromNotification = useCallback(async (m: InboxMessage) => {
+    setOpen(true);
+    const { members: ms, groups: gs } = await fetchList();
+    if (m.groupId) {
+      const g = gs.find(x => x.id === m.groupId);
+      if (g) openConversation({ type: "group", group: g });
+    } else {
+      const mem = ms.find(x => x.userId === m.fromUserId);
+      if (mem) openConversation({ type: "dm", member: mem });
+    }
+  }, [fetchList, openConversation]);
+
+  const notifyNewMessage = useCallback((m: InboxMessage) => {
+    const sender = `${m.firstName} ${m.lastName}`;
+    toast(m.groupName ? `${sender} · ${m.groupName}` : sender, {
+      description: notificationPreview(m.body),
+      icon: <MessageSquare className="h-[18px] w-[18px] text-primary" />,
+      className: "border-l-4! border-l-primary!",
+      action: { label: "Open", onClick: () => openFromNotification(m) },
+    });
+  }, [openFromNotification]);
+
   // ── Effects ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -337,6 +456,109 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
     return () => clearInterval(id);
   }, [fetchList]);
 
+  // Presence: beat while the tab is visible, and read back everyone's status.
+  // A hidden tab stops beating, so you fade to offline instead of looking
+  // permanently active on a board you walked away from.
+  useEffect(() => {
+    let cancelled = false;
+
+    const beat = async () => {
+      if (document.hidden) return;
+      try {
+        const r = await fetch(`/api/board/${boardId}/presence`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (!r.ok || cancelled) return;
+        const d: { presence: { userId: string; lastSeenAt: string; online: boolean }[] } =
+          await r.json();
+        const next: PresenceMap = {};
+        for (const p of d.presence) {
+          next[p.userId] = { online: p.online, lastSeenAt: p.lastSeenAt };
+        }
+        setPresence(next);
+      } catch { /* ignore */ }
+    };
+
+    // Leaving the page retires the row so others see you drop off at once.
+    const goOffline = () => {
+      navigator.sendBeacon?.(
+        `/api/board/${boardId}/presence`,
+        new Blob([JSON.stringify({ offline: true })], { type: "application/json" })
+      );
+    };
+
+    beat();
+    const id = setInterval(beat, PRESENCE_HEARTBEAT_MS);
+    document.addEventListener("visibilitychange", beat);
+    window.addEventListener("pagehide", goOffline);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", beat);
+      window.removeEventListener("pagehide", goOffline);
+      goOffline();
+    };
+  }, [boardId]);
+
+  // Inbox: every message addressed to me across all conversations. Runs whether
+  // or not the panel is open — that's what makes the toast a notification.
+  useEffect(() => {
+    let cancelled = false;
+
+    const poll = async () => {
+      const since = inboxCursor.current;
+      try {
+        const r = await fetch(
+          `/api/board/${boardId}/chat/inbox${since ? `?since=${encodeURIComponent(since)}` : ""}`
+        );
+        if (!r.ok || cancelled) return;
+        const d: { messages: InboxMessage[]; now: string } = await r.json();
+        inboxCursor.current = d.now;
+
+        const fresh = d.messages.filter(m => !notified.current.has(m.id));
+        if (!fresh.length) return;
+        for (const m of fresh) notified.current.add(m.id);
+
+        // Keep the sidebar previews honest even while the panel is closed.
+        fetchList();
+
+        const conv = activeRef.current;
+        let missed = 0;
+        for (const m of fresh) {
+          const inActiveConv = !conv ? false
+            : conv.type === "group"
+              ? m.groupId === conv.group.id
+              : !m.groupId && m.fromUserId === conv.member.userId;
+
+          if (inActiveConv) {
+            setMessages(prev => prev.some(p => p.id === m.id) ? prev : [...prev, {
+              id: m.id,
+              body: m.body,
+              createdAt: m.createdAt,
+              fromUserId: m.fromUserId,
+              toUserId: m.toUserId,
+              firstName: m.firstName,
+              lastName: m.lastName,
+            }]);
+            // Already on screen — don't interrupt with a toast.
+            if (openRef.current) continue;
+          }
+
+          missed++;
+          notifyNewMessage(m);
+        }
+        if (missed) setUnread(c => c + missed);
+      } catch { /* ignore */ }
+    };
+
+    poll();
+    const id = setInterval(poll, INBOX_POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [boardId, fetchList, notifyNewMessage]);
+
   useEffect(() => {
     const poll = async () => {
       const conv = activeRef.current;
@@ -349,18 +571,18 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
         if (!r.ok) return;
         const d: { messages: DmMessage[] } = await r.json();
         if (!d.messages.length) return;
+        // Unread is tallied by the inbox poll, which sees every conversation.
         setMessages(prev => {
           const ids = new Set(prev.map(m => m.id));
           const fresh = d.messages.filter(m => !ids.has(m.id));
           if (!fresh.length) return prev;
-          if (!openRef.current) setUnread(c => c + fresh.filter(m => m.fromUserId !== currentUserId).length);
           return [...prev, ...fresh];
         });
       } catch { /* ignore */ }
     };
     const id = setInterval(poll, 3000);
     return () => clearInterval(id);
-  }, [boardId, currentUserId]);
+  }, [boardId]);
 
   useEffect(() => {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 60);
@@ -394,18 +616,6 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
   }, [linkMode, creatingGroup, addingMembers, groupInfo]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
-
-  function openConversation(conv: ActiveConv) {
-    setActive(conv);
-    setCreatingGroup(false);
-    setAddingMembers(false);
-    setGroupInfo(false);
-    setMessages([]);
-    setInput("");
-    setPendingFile(null);
-    setLinkMode(false);
-    fetchConversation(conv);
-  }
 
   function startAddMembers() {
     setAddingMembers(true);
@@ -747,12 +957,20 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
 
   const canSend = !sending && !isUploading && (!!input.trim() || !!pendingFile);
 
+  const isOnline = (userId: string) => presence[userId]?.online ?? false;
+  const onlineCount = members.filter(m => isOnline(m.userId)).length;
+  const groupOnlineCount = active?.type === "group"
+    ? active.group.members.filter(m => m.userId !== currentUserId && isOnline(m.userId)).length
+    : 0;
+
   const activeTitle = active?.type === "dm"
     ? fullName(active.member)
     : active?.group.name ?? "";
   const activeSubtitle = active?.type === "group"
     ? `${active.group.memberCount} members · ${groupSubtitle(active.group)}`
-    : "Active now";
+    : active?.type === "dm"
+      ? presenceLabel(presence[active.member.userId])
+      : "";
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -805,8 +1023,14 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
           <div className="flex items-center justify-between px-4 pt-5 pb-3 shrink-0">
             <div>
               <h2 className="font-heading font-bold text-base leading-none">Messages</h2>
-              <p className="text-[11px] text-muted-foreground mt-1.5">
+              <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
                 {members.length} people · {groups.length} group{groups.length !== 1 ? "s" : ""}
+                {onlineCount > 0 && (
+                  <span className="flex items-center gap-1 text-emerald-500 font-medium">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    {onlineCount} online
+                  </span>
+                )}
               </p>
             </div>
             <button
@@ -907,10 +1131,13 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
                           : "hover:bg-muted/40 border-l-transparent"
                       )}
                     >
-                      <div className="relative shrink-0">
-                        <Avatar userId={m.userId} firstName={m.firstName} lastName={m.lastName} size="md" />
-                        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-card" />
-                      </div>
+                      <PresenceAvatar
+                        userId={m.userId}
+                        firstName={m.firstName}
+                        lastName={m.lastName}
+                        size="md"
+                        online={isOnline(m.userId)}
+                      />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-1">
                           <span className={cn("text-xs font-semibold truncate", isActive && "text-primary")}>
@@ -947,6 +1174,7 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
           {creatingGroup ? (
             <GroupCreator
               members={members}
+              presence={presence}
               memberSearch={memberSearch}
               setMemberSearch={setMemberSearch}
               newGroupName={newGroupName}
@@ -962,6 +1190,7 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
             <AddMembersPane
               group={active.group}
               members={members}
+              presence={presence}
               search={addSearch}
               setSearch={setAddSearch}
               selectedIds={addSelected}
@@ -975,6 +1204,7 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
             <GroupMembersPane
               group={active.group}
               currentUserId={currentUserId}
+              presence={presence}
               removingId={removingId}
               leaving={leaving}
               renameSaving={renameSaving}
@@ -994,12 +1224,16 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
                 <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
                   <MessageSquare className="h-9 w-9 text-primary" />
                 </div>
-                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-emerald-500 ring-2 ring-card" />
+                {onlineCount > 0 && (
+                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-emerald-500 ring-2 ring-card" />
+                )}
               </div>
               <div className="text-center">
                 <p className="font-heading font-bold text-base">Your messages</p>
                 <p className="text-xs text-muted-foreground mt-1.5 max-w-[220px] leading-relaxed">
-                  Pick someone to start a direct message, or create a group to chat with several members at once.
+                  {onlineCount > 0
+                    ? `${onlineCount} ${onlineCount === 1 ? "person is" : "people are"} active on this board right now. Pick someone to start a direct message, or create a group.`
+                    : "Pick someone to start a direct message, or create a group to chat with several members at once."}
                 </p>
               </div>
               <button
@@ -1029,10 +1263,13 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
                   <ArrowLeft className="h-4 w-4" />
                 </button>
                 {active.type === "dm" ? (
-                  <div className="relative">
-                    <Avatar userId={active.member.userId} firstName={active.member.firstName} lastName={active.member.lastName} size="md" />
-                    <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-card" />
-                  </div>
+                  <PresenceAvatar
+                    userId={active.member.userId}
+                    firstName={active.member.firstName}
+                    lastName={active.member.lastName}
+                    size="md"
+                    online={isOnline(active.member.userId)}
+                  />
                 ) : (
                   <GroupAvatar group={active.group} />
                 )}
@@ -1046,14 +1283,23 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
                       {activeTitle}
                       <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover/hdr:opacity-100 transition-opacity" />
                     </p>
-                    <p className="text-[11px] font-medium truncate text-muted-foreground">
-                      {activeSubtitle}
+                    <p className="text-[11px] font-medium truncate text-muted-foreground flex items-center gap-1.5">
+                      <span className="truncate">{activeSubtitle}</span>
+                      {groupOnlineCount > 0 && (
+                        <span className="shrink-0 flex items-center gap-1 text-emerald-500">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          {groupOnlineCount} online
+                        </span>
+                      )}
                     </p>
                   </button>
                 ) : (
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm leading-tight truncate">{activeTitle}</p>
-                    <p className="text-[11px] font-medium truncate text-emerald-500">
+                    <p className={cn(
+                      "text-[11px] font-medium truncate",
+                      isOnline(active.member.userId) ? "text-emerald-500" : "text-muted-foreground"
+                    )}>
                       {activeSubtitle}
                     </p>
                   </div>
@@ -1062,8 +1308,13 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
                   <>
                     <div className="hidden sm:flex -space-x-2">
                       {active.group.members.slice(0, 4).map(gm => (
-                        <div key={gm.userId} className="ring-2 ring-card rounded-full">
+                        <div
+                          key={gm.userId}
+                          title={`${fullName(gm)} — ${presenceLabel(presence[gm.userId])}`}
+                          className="relative ring-2 ring-card rounded-full"
+                        >
                           <Avatar userId={gm.userId} firstName={gm.firstName} lastName={gm.lastName} size="xs" />
+                          {isOnline(gm.userId) && <PresenceDot online size="sm" />}
                         </div>
                       ))}
                       {active.group.memberCount > 4 && (
@@ -1330,10 +1581,11 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
 // ── Group creation pane ─────────────────────────────────────────────────────
 
 function GroupCreator({
-  members, memberSearch, setMemberSearch, newGroupName, setNewGroupName,
+  members, presence, memberSearch, setMemberSearch, newGroupName, setNewGroupName,
   selectedIds, toggleSelected, saving, onCancel, onCreate, onClose,
 }: {
   members: Member[];
+  presence: PresenceMap;
   memberSearch: string;
   setMemberSearch: (v: string) => void;
   newGroupName: string;
@@ -1440,9 +1692,23 @@ function GroupCreator({
                 checked ? "bg-primary/10" : "hover:bg-muted/40"
               )}
             >
-              <Avatar userId={m.userId} firstName={m.firstName} lastName={m.lastName} size="md" />
-              <span className={cn("flex-1 text-sm font-medium truncate", checked && "text-primary")}>
-                {fullName(m)}
+              <PresenceAvatar
+                userId={m.userId}
+                firstName={m.firstName}
+                lastName={m.lastName}
+                size="md"
+                online={!!presence[m.userId]?.online}
+              />
+              <span className="flex-1 min-w-0">
+                <span className={cn("block text-sm font-medium truncate", checked && "text-primary")}>
+                  {fullName(m)}
+                </span>
+                <span className={cn(
+                  "block text-[11px] truncate",
+                  presence[m.userId]?.online ? "text-emerald-500" : "text-muted-foreground"
+                )}>
+                  {presenceLabel(presence[m.userId])}
+                </span>
               </span>
               <span className={cn(
                 "flex h-5 w-5 items-center justify-center rounded-md border transition-colors shrink-0",
@@ -1485,11 +1751,12 @@ function GroupCreator({
 // ── Add-members-to-existing-group pane ──────────────────────────────────────
 
 function AddMembersPane({
-  group, members, search, setSearch, selectedIds, toggleSelected,
+  group, members, presence, search, setSearch, selectedIds, toggleSelected,
   saving, onCancel, onAdd, onClose,
 }: {
   group: ChatGroup;
   members: Member[];
+  presence: PresenceMap;
   search: string;
   setSearch: (v: string) => void;
   selectedIds: Set<string>;
@@ -1565,9 +1832,23 @@ function AddMembersPane({
                 checked ? "bg-primary/10" : "hover:bg-muted/40"
               )}
             >
-              <Avatar userId={m.userId} firstName={m.firstName} lastName={m.lastName} size="md" />
-              <span className={cn("flex-1 text-sm font-medium truncate", checked && "text-primary")}>
-                {fullName(m)}
+              <PresenceAvatar
+                userId={m.userId}
+                firstName={m.firstName}
+                lastName={m.lastName}
+                size="md"
+                online={!!presence[m.userId]?.online}
+              />
+              <span className="flex-1 min-w-0">
+                <span className={cn("block text-sm font-medium truncate", checked && "text-primary")}>
+                  {fullName(m)}
+                </span>
+                <span className={cn(
+                  "block text-[11px] truncate",
+                  presence[m.userId]?.online ? "text-emerald-500" : "text-muted-foreground"
+                )}>
+                  {presenceLabel(presence[m.userId])}
+                </span>
               </span>
               <span className={cn(
                 "flex h-5 w-5 items-center justify-center rounded-md border transition-colors shrink-0",
@@ -1610,11 +1891,12 @@ function AddMembersPane({
 // ── Group members / manage pane ─────────────────────────────────────────────
 
 function GroupMembersPane({
-  group, currentUserId, removingId, leaving, renameSaving, deleting,
+  group, currentUserId, presence, removingId, leaving, renameSaving, deleting,
   onRemove, onLeave, onRename, onDelete, onAddMembers, onBack, onClose,
 }: {
   group: ChatGroup;
   currentUserId: string;
+  presence: PresenceMap;
   removingId: string | null;
   leaving: boolean;
   renameSaving: boolean;
@@ -1628,15 +1910,21 @@ function GroupMembersPane({
   onClose: () => void;
 }) {
   const isCreator = group.createdByUserId === currentUserId;
+  const onlineCount = group.members.filter(
+    m => m.userId !== currentUserId && presence[m.userId]?.online
+  ).length;
   const [editing, setEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState(group.name);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Creator first, then everyone else alphabetically
+  // Creator first, then whoever's online, then everyone else alphabetically
   const sorted = [...group.members].sort((a, b) => {
     if (a.userId === group.createdByUserId) return -1;
     if (b.userId === group.createdByUserId) return 1;
+    const aOn = presence[a.userId]?.online ? 1 : 0;
+    const bOn = presence[b.userId]?.online ? 1 : 0;
+    if (aOn !== bOn) return bOn - aOn;
     return fullName(a).localeCompare(fullName(b));
   });
 
@@ -1664,8 +1952,14 @@ function GroupMembersPane({
         </button>
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-sm leading-tight truncate">Group info</p>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
             {group.memberCount} member{group.memberCount !== 1 ? "s" : ""}
+            {onlineCount > 0 && (
+              <span className="flex items-center gap-1 text-emerald-500 font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                {onlineCount} online
+              </span>
+            )}
           </p>
         </div>
         <button
@@ -1757,17 +2051,32 @@ function GroupMembersPane({
               key={m.userId}
               className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-muted/30 transition-colors"
             >
-              <Avatar userId={m.userId} firstName={m.firstName} lastName={m.lastName} size="md" />
+              <PresenceAvatar
+                userId={m.userId}
+                firstName={m.firstName}
+                lastName={m.lastName}
+                size="md"
+                online={!!presence[m.userId]?.online}
+              />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate flex items-center gap-1.5">
                   {fullName(m)}
                   {isSelf && <span className="text-[10px] text-muted-foreground font-normal">(you)</span>}
                 </p>
-                {isOwner && (
-                  <p className="text-[11px] text-amber-500 font-medium flex items-center gap-1">
-                    <Crown className="h-3 w-3" /> Creator
-                  </p>
-                )}
+                <p className="text-[11px] font-medium flex items-center gap-1.5 truncate">
+                  {isOwner && (
+                    <span className="text-amber-500 flex items-center gap-1 shrink-0">
+                      <Crown className="h-3 w-3" /> Creator
+                    </span>
+                  )}
+                  {isOwner && <span className="text-muted-foreground/50">·</span>}
+                  <span className={cn(
+                    "truncate",
+                    presence[m.userId]?.online ? "text-emerald-500" : "text-muted-foreground"
+                  )}>
+                    {isSelf ? "Active now" : presenceLabel(presence[m.userId])}
+                  </span>
+                </p>
               </div>
               {canRemove && (
                 <button

@@ -203,6 +203,23 @@ export const chatGroupMembers = pgTable(
   (t) => [primaryKey({ columns: [t.groupId, t.userId] })]
 );
 
+// Heartbeat row per (board, user). The board page pings this while the tab is
+// visible; a user counts as "online" when lastSeenAt is inside the freshness
+// window (see PRESENCE_WINDOW_MS in the presence route).
+export const boardPresence = pgTable(
+  "board_presence",
+  {
+    boardId: uuid("board_id")
+      .notNull()
+      .references(() => boards.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.boardId, t.userId] })]
+);
+
 // A message is either a direct message (toUserId set, groupId null) or a
 // group message (groupId set, toUserId null).
 export const boardMessages = pgTable("board_messages", {
@@ -320,3 +337,4 @@ export type Attachment = typeof attachments.$inferSelect;
 export type BoardMessage = typeof boardMessages.$inferSelect;
 export type ChatGroup = typeof chatGroups.$inferSelect;
 export type ChatGroupMember = typeof chatGroupMembers.$inferSelect;
+export type BoardPresence = typeof boardPresence.$inferSelect;
