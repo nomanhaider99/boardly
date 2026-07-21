@@ -27,6 +27,8 @@ import { CardDetailDialog } from "@/components/card-detail-sheet";
 import { AddListInline } from "@/components/add-list-inline";
 import { BoardSettingsDialog } from "@/components/board-settings-dialog";
 import { resolveBackground } from "@/lib/board-backgrounds";
+import { useDragScroll } from "@/lib/use-drag-scroll";
+import { cn } from "@/lib/utils";
 import type { List, Card, CardLabel } from "@/db/schema";
 
 type CardsUpdatedPayload = {
@@ -160,6 +162,9 @@ export function BoardView({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
   );
+
+  // Drag the board background to pan it, instead of only via the scrollbar.
+  const [boardScrollRef, isPanning] = useDragScroll<HTMLDivElement>();
 
   function findCardList(cardId: string): string | null {
     for (const [listId, cards] of Object.entries(cardsByList)) {
@@ -426,7 +431,13 @@ export function BoardView({
                 <AddListInline boardId={boardId} onListAdded={onListAdded} />
               </div>
             ) : (
-              <div className="flex gap-3 items-start h-full overflow-x-auto pb-4 px-1">
+              <div
+                ref={boardScrollRef}
+                className={cn(
+                  "flex gap-3 items-start h-full overflow-x-auto pb-4 px-1",
+                  isPanning && "cursor-grabbing select-none"
+                )}
+              >
                 {lists.map((list) => (
                   <ListColumn
                     key={list.id}
