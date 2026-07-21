@@ -5,7 +5,41 @@ import { Loader2, Trash2, Send, ArrowRight, Search, X, Pencil, Check } from "luc
 import { toast } from "sonner";
 import { addComment, deleteComment, editComment } from "@/app/actions/comment";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { CommentWithUser, MemberForMention } from "@/app/actions/comment";
+
+// ── Avatar (image with deterministic-colour initials fallback) ──────────────
+
+const AVATAR_COLORS = [
+  "bg-violet-500", "bg-blue-500", "bg-emerald-500", "bg-amber-500",
+  "bg-rose-500", "bg-cyan-500", "bg-fuchsia-500", "bg-orange-500",
+];
+
+function avatarColor(id: string) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function MemberAvatar({
+  userId, name, avatarUrl, className,
+}: { userId: string; name: string; avatarUrl?: string | null; className?: string }) {
+  const base = cn(
+    "shrink-0 flex items-center justify-center rounded-full text-white font-bold overflow-hidden",
+    className
+  );
+  if (avatarUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={avatarUrl} alt={name} className={cn(base, "object-cover")} />
+    );
+  }
+  return (
+    <span className={cn(base, avatarColor(userId))}>
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
 
 function timeAgo(date: Date): string {
   const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
@@ -222,6 +256,7 @@ export function CardComments({
           userId: currentUserId,
           firstName: "You",
           lastName: "",
+          avatarUrl: null,
           isSystem: false,
         },
         ...prev,
@@ -305,22 +340,50 @@ export function CardComments({
         <div className="relative">
           {/* Mention dropdown */}
           {mentionState !== null && filteredMembers.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 z-10 rounded-lg border border-border bg-popover shadow-lg overflow-hidden">
-              {filteredMembers.map((m, i) => (
-                <button
-                  key={m.userId}
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); selectMember(m); }}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
-                    i === highlightedIndex ? "bg-muted" : "hover:bg-muted/50"
-                  }`}
-                >
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
-                    {(boardLabelMap?.[m.userId] ?? m.firstName).charAt(0).toUpperCase()}
-                  </span>
-                  <span>{boardLabelMap?.[m.userId] ?? `${m.firstName} ${m.lastName}`}</span>
-                </button>
-              ))}
+            <div className="absolute top-full left-0 right-0 mt-1.5 z-20 rounded-xl border border-border/70 bg-popover/95 backdrop-blur-xl shadow-xl ring-1 ring-foreground/5 overflow-hidden">
+              <div className="flex items-center justify-between px-3 pt-2 pb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Tag a member
+                </span>
+                <span className="text-[10px] text-muted-foreground/70">↑↓ to navigate · ↵ to select</span>
+              </div>
+              <div className="max-h-56 overflow-y-auto pb-1">
+                {filteredMembers.map((m, i) => {
+                  const label = boardLabelMap?.[m.userId] ?? `${m.firstName} ${m.lastName}`.trim();
+                  const active = i === highlightedIndex;
+                  return (
+                    <button
+                      key={m.userId}
+                      type="button"
+                      onMouseEnter={() => setHighlightedIndex(i)}
+                      onMouseDown={(e) => { e.preventDefault(); selectMember(m); }}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-2.5 py-1.5 mx-1 rounded-lg text-sm text-left transition-colors",
+                        active ? "bg-primary/10" : "hover:bg-muted/50"
+                      )}
+                      style={{ width: "calc(100% - 0.5rem)" }}
+                    >
+                      <MemberAvatar
+                        userId={m.userId}
+                        name={m.firstName}
+                        avatarUrl={m.avatarUrl}
+                        className="h-8 w-8 text-xs ring-2 ring-background"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className={cn("text-sm font-medium truncate leading-tight", active && "text-primary")}>
+                          {label}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground truncate leading-tight">
+                          {`${m.firstName} ${m.lastName}`.trim()}
+                        </p>
+                      </div>
+                      {active && (
+                        <span className="text-[10px] font-semibold text-primary shrink-0">Tag</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -363,9 +426,12 @@ export function CardComments({
               // Regular comment bubble
               <div key={comment.id} className="rounded-xl border border-border/50 bg-muted/40 px-3 py-2.5 space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
-                    {comment.firstName.charAt(0).toUpperCase()}
-                  </div>
+                  <MemberAvatar
+                    userId={comment.userId}
+                    name={comment.firstName}
+                    avatarUrl={comment.avatarUrl}
+                    className="h-6 w-6 text-[10px]"
+                  />
                   <span className="text-xs font-semibold">
                     {boardLabelMap?.[comment.userId] ?? `${comment.firstName} ${comment.lastName}`.trim()}
                   </span>

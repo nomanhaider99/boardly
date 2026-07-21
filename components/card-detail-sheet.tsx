@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { CardComments } from "@/components/card-comments";
 import { CardAttachments } from "@/components/card-attachments";
+import { RichTextEditor, RichTextView, isRichText, sanitizeHtml } from "@/components/rich-text";
 import { LabelPicker } from "@/components/label-picker";
 import { CredentialsSection } from "@/components/credentials-dialog";
 import { getCardCredentialsMeta, type CredentialMeta } from "@/app/actions/credential";
@@ -199,7 +200,10 @@ export function CardDetailDialog({
       if (!t) return;
       payload.title = t;
     } else if (field === "description") {
-      payload.description = draftDescription.trim() || undefined;
+      const cleaned = sanitizeHtml(draftDescription);
+      // Treat empty markup (e.g. "<div><br></div>") as no description.
+      const isEmpty = !cleaned.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, "").trim();
+      payload.description = isEmpty ? undefined : cleaned;
     } else if (field === "dueDate") {
       payload.dueDate = draftDueDate ? new Date(draftDueDate) : null;
     }
@@ -217,7 +221,7 @@ export function CardDetailDialog({
 
     const updated: Card = { ...card };
     if (field === "title") updated.title = draftTitle.trim();
-    if (field === "description") updated.description = draftDescription.trim() || null;
+    if (field === "description") updated.description = payload.description ?? null;
     if (field === "dueDate") updated.dueDate = draftDueDate ? new Date(draftDueDate) : null;
 
     onUpdated(updated);
@@ -443,15 +447,13 @@ export function CardDetailDialog({
                   </Label>
                   {editingField === "description" ? (
                     <div className="space-y-2">
-                      <textarea
+                      <RichTextEditor
                         autoFocus
-                        value={draftDescription}
-                        onChange={(e) => setDraftDescription(e.target.value)}
-                        rows={4}
-                        placeholder="Add a description…"
-                        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground"
+                        initialHtml={draftDescription}
+                        onChange={setDraftDescription}
+                        placeholder="Add a description… use the toolbar to format"
                       />
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         <Button
                           size="sm"
                           onClick={() => saveField("description")}
@@ -468,6 +470,9 @@ export function CardDetailDialog({
                         <Button variant="ghost" size="sm" onClick={cancelEdit}>
                           Cancel
                         </Button>
+                        <span className="text-[10px] text-muted-foreground ml-auto">
+                          Bold, italic, underline & lists supported
+                        </span>
                       </div>
                     </div>
                   ) : (
@@ -480,9 +485,15 @@ export function CardDetailDialog({
                       aria-label="Edit description"
                     >
                       {card.description ? (
-                        <p className="text-sm whitespace-pre-wrap flex-1 leading-relaxed">
-                          {renderDescription(card.description)}
-                        </p>
+                        isRichText(card.description) ? (
+                          <div className="flex-1 min-w-0">
+                            <RichTextView html={card.description} />
+                          </div>
+                        ) : (
+                          <p className="text-sm whitespace-pre-wrap flex-1 leading-relaxed">
+                            {renderDescription(card.description)}
+                          </p>
+                        )
                       ) : (
                         <p className="text-sm text-muted-foreground italic flex-1">
                           No description. Click to add one.
