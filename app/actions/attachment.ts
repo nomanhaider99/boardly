@@ -83,6 +83,35 @@ export async function deleteAttachment(attachmentId: string): Promise<Attachment
   return { success: true };
 }
 
+export async function renameAttachment(
+  attachmentId: string,
+  fileName: string
+): Promise<AttachmentActionResult> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const name = fileName.trim();
+  if (!name) return { success: false, error: "Name is required." };
+  if (name.length > 200) return { success: false, error: "Name is too long." };
+
+  const [attachment] = await db
+    .select({ uploadedByUserId: attachments.uploadedByUserId })
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .limit(1);
+
+  if (!attachment) return { success: false, error: "Attachment not found." };
+  if (attachment.uploadedByUserId !== session.userId)
+    return { success: false, error: "Not authorized." };
+
+  await db
+    .update(attachments)
+    .set({ fileName: name })
+    .where(eq(attachments.id, attachmentId));
+
+  return { success: true };
+}
+
 export type AttachmentWithUploader = {
   id: string;
   url: string;

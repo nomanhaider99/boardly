@@ -103,6 +103,7 @@ export type CommentWithUser = {
   userId: string;
   firstName: string;
   lastName: string;
+  avatarUrl: string | null;
   isSystem: boolean;
 };
 
@@ -116,6 +117,7 @@ export async function getCardComments(cardId: string): Promise<CommentWithUser[]
       userId: comments.userId,
       firstName: users.firstName,
       lastName: users.lastName,
+      avatarUrl: users.avatarUrl,
       isSystem: comments.isSystem,
     })
     .from(comments)
@@ -130,6 +132,7 @@ export type MemberForMention = {
   userId: string;
   firstName: string;
   lastName: string;
+  avatarUrl: string | null;
 };
 
 export async function getCardWorkspaceMembers(cardId: string): Promise<MemberForMention[]> {
@@ -150,6 +153,7 @@ export async function getCardWorkspaceMembers(cardId: string): Promise<MemberFor
       userId: workspaceMembers.userId,
       firstName: users.firstName,
       lastName: users.lastName,
+      avatarUrl: users.avatarUrl,
     })
     .from(workspaceMembers)
     .innerJoin(users, eq(workspaceMembers.userId, users.id))
