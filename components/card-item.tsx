@@ -50,6 +50,10 @@ export function CardItem({ card, listId, labels = [], dragDisabled = false, onCl
             className="object-cover"
             sizes="224px"
             draggable={false}
+            // Imported Trello covers are served by our authenticated proxy; the
+            // image optimizer fetches server-side without the session cookie,
+            // so let the browser request them directly.
+            unoptimized={card.bannerUrl.startsWith("/api/trello-asset")}
           />
         </div>
       )}

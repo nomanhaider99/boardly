@@ -1,17 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { attachments, boards, cards, comments, lists, workspaceMembers } from "@/db/schema";
+import { attachments, boards, cards, comments, lists, trelloConnections, workspaceMembers } from "@/db/schema";
 import { getSession } from "@/lib/auth";
+import { trelloAssetUrl } from "@/lib/trello-asset";
+import { attachmentType, pickCoverUrl } from "@/lib/trello-import";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 type InList = { id: string; name: string; pos: number };
-type InAttachment = { name: string; url: string; mimeType: string; bytes: number };
+type InAttachment = {
+  id?: string;
+  name: string;
+  url: string;
+  mimeType: string;
+  bytes: number;
+  previews?: { url: string; width?: number; height?: number }[];
+};
 type InCard = {
   id: string; idList: string; name: string; desc: string;
   due: string | null; pos: number;
-  cover?: { scaled?: { url: string; height: number }[] } | null;
+  cover?: {
+    idAttachment?: string | null;
+    scaled?: { url: string; width?: number; height?: number }[];
+  } | null;
   attachments?: InAttachment[];
 };
 type InAction = {
@@ -56,6 +68,18 @@ export async function POST(
       .limit(1);
     if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+    // Files in a JSON export still live on trello.com behind auth. If this user
+    // has Trello connected we can route them through our proxy; otherwise the
+    // original URLs are kept, and only they will be able to open them.
+    const [trelloCreds] = await db
+      .select({ userId: trelloConnections.userId })
+      .from(trelloConnections)
+      .where(eq(trelloConnections.userId, session.userId))
+      .limit(1);
+    const proxyable = !!trelloCreds;
+    const toAppUrl = (url: string) =>
+      (proxyable ? trelloAssetUrl(url, session.userId) : null) ?? url;
+
     // Index comments by Trello card ID
     const commentsByCard: Record<string, InAction[]> = {};
     for (const a of payload.actions ?? []) {
@@ -76,7 +100,7 @@ export async function POST(
     const startPos = (lastList?.position ?? 0) + 1000;
 
     const sortedLists = [...payload.lists].sort((a, b) => a.pos - b.pos);
-    let totalLists = 0, totalCards = 0, totalComments = 0, totalAttachments = 0;
+    let totalLists = 0, totalCards = 0, totalComments = 0, totalAttachments = 0, totalCovers = 0;
 
     for (let i = 0; i < sortedLists.length; i++) {
       const tl = sortedLists[i];
@@ -91,12 +115,9 @@ export async function POST(
 
       // Batch-insert all cards in this list
       const cardValues = tCards.map((tc, j) => {
-        let bannerUrl: string | null = null;
-        if (tc.cover?.scaled?.length) {
-          const largest = [...tc.cover.scaled].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0];
-          const url = largest?.url ?? null;
-          if (url && !url.includes("trello.com")) bannerUrl = url;
-        }
+        const rawCover = pickCoverUrl(tc);
+        const bannerUrl = rawCover ? toAppUrl(rawCover) : null;
+        if (bannerUrl) totalCovers++;
         return {
           listId: insertedList.id,
           title: (tc.name || "Untitled").slice(0, 200),
@@ -112,7 +133,7 @@ export async function POST(
 
       // Collect all comments for this list's cards
       const allComments: { cardId: string; userId: string; body: string; createdAt: Date }[] = [];
-      const allAtts: { cardId: string; url: string; type: "image" | "document"; fileName: string; size: number; uploadedByUserId: string }[] = [];
+      const allAtts: { cardId: string; url: string; type: "image" | "video" | "document"; fileName: string; size: number; uploadedByUserId: string }[] = [];
 
       for (let j = 0; j < tCards.length; j++) {
         const tc = tCards[j];
@@ -128,11 +149,15 @@ export async function POST(
         }
 
         for (const att of (tc.attachments ?? [])) {
+          if (!att.url) continue;
+          const fileName = (att.name || "attachment").slice(0, 255);
           allAtts.push({
             cardId,
-            url: att.url,
-            type: (att.mimeType ?? "").startsWith("image/") ? "image" : "document",
-            fileName: (att.name || "attachment").slice(0, 255),
+            // Trello-hosted files go through the proxy; links a user pasted onto
+            // a card are already public and keep their original destination.
+            url: toAppUrl(att.url),
+            type: attachmentType(att.mimeType, fileName),
+            fileName,
             size: att.bytes ?? 0,
             uploadedByUserId: session.userId,
           });
@@ -154,7 +179,7 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({ imported: { lists: totalLists, cards: totalCards, comments: totalComments, attachments: totalAttachments } });
+    return NextResponse.json({ imported: { lists: totalLists, cards: totalCards, comments: totalComments, attachments: totalAttachments, covers: totalCovers } });
   } catch (err) {
     console.error("[json-import]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Internal server error" }, { status: 500 });
