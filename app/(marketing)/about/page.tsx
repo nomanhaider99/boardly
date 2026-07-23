@@ -4,8 +4,8 @@ import { ArrowRight, Target, Zap, Shield, Heart } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 
 export const metadata: Metadata = {
-  title: "About — Boardly",
-  description: "What Boardly is, who it's for, and why we built it.",
+  title: "About",
+  description: "What Proboardive is, who it's for, and why we built it.",
 };
 
 const values = [
@@ -25,7 +25,7 @@ const values = [
     icon: Shield,
     title: "Your data, your control",
     description:
-      "No selling your data, no dark patterns. Boardly earns its place by being genuinely useful.",
+      "No selling your data, no dark patterns. Proboardive earns its place by being genuinely useful.",
   },
   {
     icon: Heart,
@@ -38,7 +38,7 @@ const values = [
 const audience = [
   {
     who: "Startups",
-    description: "Move fast without tripping over process. Boardly gives you just enough structure.",
+    description: "Move fast without tripping over process. Proboardive gives you just enough structure.",
     emoji: "🚀",
   },
   {
@@ -63,7 +63,7 @@ export default function AboutPage() {
         </div>
         <div className="relative mx-auto max-w-3xl space-y-6">
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-4 py-1.5 text-xs font-medium text-primary">
-            ✦ About Boardly
+            ✦ About Proboardive
           </div>
           <h1 className="font-heading text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">
             Project management
@@ -71,7 +71,7 @@ export default function AboutPage() {
             <span className="text-primary">that gets out of the way.</span>
           </h1>
           <p className="mx-auto max-w-xl text-lg text-muted-foreground leading-relaxed">
-            Boardly started as a frustration with existing tools that were either too simple or
+            Proboardive started as a frustration with existing tools that were either too simple or
             buried the things you actually needed under layers of settings.
           </p>
         </div>
@@ -88,10 +88,10 @@ export default function AboutPage() {
           </blockquote>
           <div className="space-y-4 text-muted-foreground leading-relaxed max-w-2xl">
             <p>
-              We built Boardly because most team tools make a trade-off: either they&apos;re too lightweight to handle real projects, or they&apos;re so feature-rich that your team needs a week of onboarding before they can use them.
+              We built Proboardive because most team tools make a trade-off: either they&apos;re too lightweight to handle real projects, or they&apos;re so feature-rich that your team needs a week of onboarding before they can use them.
             </p>
             <p>
-              Boardly sits in the middle — opinionated enough to give you a clear structure, flexible enough to bend to how your team actually works. Drag-and-drop boards, real-time sync, role-based access, card comments, and now an AI agent that takes actions on your behalf.
+              Proboardive sits in the middle — opinionated enough to give you a clear structure, flexible enough to bend to how your team actually works. Drag-and-drop boards, real-time sync, role-based access, card comments, and now an AI agent that takes actions on your behalf.
             </p>
             <p>
               We don&apos;t believe in charging for features that should be standard. The free tier is generous on purpose.

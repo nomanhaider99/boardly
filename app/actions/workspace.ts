@@ -2,9 +2,16 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { workspaces, workspaceMembers, users } from "@/db/schema";
+import {
+  workspaces,
+  workspaceMembers,
+  users,
+  boards,
+  boardMembers,
+  boardMemberLabels,
+} from "@/db/schema";
 import { getSession } from "@/lib/auth";
 
 const createWorkspaceSchema = z.object({
@@ -176,6 +183,76 @@ export async function setMemberRoleLabel(
         eq(workspaceMembers.userId, targetUserId)
       )
     );
+
+  return { success: true };
+}
+
+// ─── Remove a member from a workspace (owner only) ───────────────────────────
+// Revokes access only. Authored content (comments, cards) is preserved because
+// we never delete the user record — just their membership and per-board rows.
+export async function removeMember(
+  workspaceId: string,
+  targetUserId: string
+): Promise<{ success: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const [caller] = await db
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, session.userId)
+      )
+    )
+    .limit(1);
+
+  if (!caller || caller.role !== "owner") {
+    return { success: false, error: "Only workspace owners can remove members." };
+  }
+
+  const [target] = await db
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, targetUserId)
+      )
+    )
+    .limit(1);
+
+  if (!target) return { success: false, error: "Member not found." };
+  if (target.role === "owner") {
+    return { success: false, error: "Owners can't be removed. Transfer ownership first." };
+  }
+
+  // Remove workspace membership.
+  await db
+    .delete(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, targetUserId)
+      )
+    );
+
+  // Clean up per-board rows (move perms + cosmetic labels) for this workspace's
+  // boards. These are non-content settings, safe to remove.
+  const wsBoards = await db
+    .select({ id: boards.id })
+    .from(boards)
+    .where(eq(boards.workspaceId, workspaceId));
+  const boardIds = wsBoards.map((b) => b.id);
+  if (boardIds.length > 0) {
+    await db
+      .delete(boardMembers)
+      .where(and(inArray(boardMembers.boardId, boardIds), eq(boardMembers.userId, targetUserId)));
+    await db
+      .delete(boardMemberLabels)
+      .where(and(inArray(boardMemberLabels.boardId, boardIds), eq(boardMemberLabels.userId, targetUserId)));
+  }
 
   return { success: true };
 }

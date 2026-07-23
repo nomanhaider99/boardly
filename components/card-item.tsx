@@ -42,12 +42,12 @@ export function CardItem({ card, listId, labels = [], dragDisabled = false, onCl
       className="group rounded-lg border border-white/10 bg-card/85 backdrop-blur-md cursor-pointer hover:border-primary/50 hover:-translate-y-0.5 hover:bg-card hover:shadow-lg hover:shadow-primary/15 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 overflow-hidden"
     >
       {card.bannerUrl && (
-        <div className="relative h-40 w-full">
+        <div className="relative h-40 w-full bg-muted/40">
           <Image
             src={card.bannerUrl}
             alt=""
             fill
-            className="object-cover"
+            className="object-contain"
             sizes="224px"
             draggable={false}
             // Imported Trello covers are served by our authenticated proxy; the

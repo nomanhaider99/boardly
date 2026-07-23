@@ -14,8 +14,8 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 
 export const metadata: Metadata = {
-  title: "Features — Boardly",
-  description: "Everything your team needs to organise work and ship faster.",
+  title: "Features",
+  description: "Everything your team needs to organise work and ship faster with Proboardive.",
 };
 
 const sections = [

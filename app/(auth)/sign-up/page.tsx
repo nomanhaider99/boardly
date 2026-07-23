@@ -4,23 +4,13 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, Check, X } from "lucide-react";
 import { toast } from "sonner";
-import { signUpSchema, type SignUpValues } from "@/lib/validations/auth";
+import { signUpSchema, passwordRules, type SignUpValues } from "@/lib/validations/auth";
 import { signUp } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-function passwordStrength(pw: string): { label: string; color: string } {
-  if (pw.length === 0) return { label: "", color: "" };
-  if (pw.length < 8) return { label: "Too short", color: "text-destructive" };
-  const strong = /[A-Z]/.test(pw) && /[0-9]/.test(pw) && /[^A-Za-z0-9]/.test(pw);
-  const medium = /[A-Z]/.test(pw) || /[0-9]/.test(pw);
-  if (strong) return { label: "Strong", color: "text-primary" };
-  if (medium) return { label: "Medium", color: "text-yellow-500" };
-  return { label: "Weak", color: "text-orange-500" };
-}
 
 export default function SignUpPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -31,10 +21,12 @@ export default function SignUpPage() {
     handleSubmit,
     watch,
     formState: { errors, isSubmitting },
-  } = useForm<SignUpValues>({ resolver: zodResolver(signUpSchema) });
+  } = useForm<SignUpValues>({
+    resolver: zodResolver(signUpSchema),
+    mode: "onBlur",
+  });
 
   const password = watch("password", "");
-  const strength = passwordStrength(password);
 
   async function onSubmit(values: SignUpValues) {
     const fd = new FormData();
@@ -84,6 +76,7 @@ export default function SignUpPage() {
               id="firstName"
               placeholder="Jane"
               autoComplete="given-name"
+              aria-invalid={!!errors.firstName}
               {...register("firstName")}
             />
             {errors.firstName && (
@@ -96,6 +89,7 @@ export default function SignUpPage() {
               id="lastName"
               placeholder="Smith"
               autoComplete="family-name"
+              aria-invalid={!!errors.lastName}
               {...register("lastName")}
             />
             {errors.lastName && (
@@ -111,6 +105,7 @@ export default function SignUpPage() {
             type="email"
             placeholder="jane@example.com"
             autoComplete="email"
+            aria-invalid={!!errors.email}
             {...register("email")}
           />
           {errors.email && (
@@ -127,6 +122,7 @@ export default function SignUpPage() {
               placeholder="••••••••"
               autoComplete="new-password"
               className="pr-10"
+              aria-invalid={!!errors.password}
               {...register("password")}
             />
             <button
@@ -139,14 +135,41 @@ export default function SignUpPage() {
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">Must be at least 8 characters</p>
-            {strength.label && (
-              <p className={`text-xs font-medium ${strength.color}`}>{strength.label}</p>
-            )}
-          </div>
-          {errors.password && (
-            <p className="text-xs text-destructive">{errors.password.message}</p>
+          {/* Live requirement checklist — same predicates the schema enforces */}
+          <ul className="grid gap-1 pt-0.5">
+            {passwordRules.map((rule) => {
+              const ok = rule.test(password);
+              return (
+                <li
+                  key={rule.label}
+                  className={`flex items-center gap-1.5 text-xs ${
+                    ok ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  {ok ? (
+                    <Check className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <X className="h-3 w-3 shrink-0 opacity-60" />
+                  )}
+                  {rule.label}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm">Confirm password</Label>
+          <Input
+            id="confirm"
+            type={showPassword ? "text" : "password"}
+            placeholder="••••••••"
+            autoComplete="new-password"
+            aria-invalid={!!errors.confirm}
+            {...register("confirm")}
+          />
+          {errors.confirm && (
+            <p className="text-xs text-destructive">{errors.confirm.message}</p>
           )}
         </div>
 

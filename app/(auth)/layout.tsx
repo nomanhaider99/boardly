@@ -17,7 +17,7 @@ export default function AuthLayout({
       {/* Left branded panel */}
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between bg-card border-r border-border p-10">
         <Link href="/" className="font-heading text-2xl font-bold text-primary">
-          Boardly
+          Proboardive
         </Link>
 
         <div className="space-y-8">
@@ -45,7 +45,7 @@ export default function AuthLayout({
         </div>
 
         <p className="text-xs text-muted-foreground">
-          © {new Date().getFullYear()} Boardly. All rights reserved.
+          © {new Date().getFullYear()} Proboardive. All rights reserved.
         </p>
       </div>
 
@@ -56,7 +56,7 @@ export default function AuthLayout({
             href="/"
             className="font-heading text-xl font-bold text-primary lg:hidden"
           >
-            Boardly
+            Proboardive
           </Link>
           <div className="ml-auto">
             <ThemeToggle />

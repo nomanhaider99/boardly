@@ -53,6 +53,14 @@ export async function getBoardMemberLabels(boardId: string): Promise<MemberWithB
   const workspaceId = await getWorkspaceIdForBoard(boardId);
   if (!workspaceId) return [];
 
+  // Only workspace members may read the member roster/labels.
+  const [caller] = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, session.userId)))
+    .limit(1);
+  if (!caller) return [];
+
   const members = await db
     .select({
       userId: workspaceMembers.userId,
@@ -248,8 +256,9 @@ export async function deleteBoard(boardId: string): Promise<{ success: boolean; 
 
   if (!board) return { success: false, error: "Board not found." };
 
-  const member = await assertMember(board.workspaceId, session.userId);
-  if (!member) return { success: false, error: "Not authorized." };
+  // Deleting a board is destructive board-config — owner only (§15).
+  const isOwner = await assertBoardOwner(boardId, session.userId);
+  if (!isOwner) return { success: false, error: "Only workspace owners can delete boards." };
 
   await db.delete(boards).where(eq(boards.id, boardId));
   return { success: true };

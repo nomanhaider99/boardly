@@ -5,6 +5,7 @@ import { getWorkspaceSentInvites } from "@/app/actions/invite";
 import { getSession } from "@/lib/auth";
 import { InviteForm } from "@/components/invite-form";
 import { MemberRoleLabelEditor } from "@/components/member-role-label-editor";
+import { RemoveMemberButton } from "@/components/remove-member-button";
 
 function MemberAvatar({ name }: { name: string }) {
   return (
@@ -29,6 +30,8 @@ export default async function WorkspaceSettingsPage({
   ]);
 
   if (!workspace) notFound();
+
+  const isOwner = workspace.currentUserRole === "owner";
 
   return (
     <main className="flex-1 p-6 sm:p-8 max-w-2xl space-y-10">
@@ -55,15 +58,17 @@ export default async function WorkspaceSettingsPage({
         </div>
       </section>
 
-      {/* Invite */}
-      <section>
-        <h2 className="font-heading font-semibold text-xs uppercase tracking-wide text-muted-foreground mb-3">
-          Invite by email
-        </h2>
-        <div className="rounded-2xl border border-border/50 bg-card p-5">
-          <InviteForm workspaceId={id} pendingInvites={pendingInvites} />
-        </div>
-      </section>
+      {/* Invite — owners only */}
+      {isOwner && (
+        <section>
+          <h2 className="font-heading font-semibold text-xs uppercase tracking-wide text-muted-foreground mb-3">
+            Invite by email
+          </h2>
+          <div className="rounded-2xl border border-border/50 bg-card p-5">
+            <InviteForm workspaceId={id} pendingInvites={pendingInvites} />
+          </div>
+        </section>
+      )}
 
       {/* Members */}
       <section>
@@ -100,6 +105,13 @@ export default async function WorkspaceSettingsPage({
                 <span className="text-xs font-medium capitalize text-muted-foreground">
                   {member.role}
                 </span>
+                {isOwner && member.role !== "owner" && member.userId !== session.userId && (
+                  <RemoveMemberButton
+                    workspaceId={id}
+                    targetUserId={member.userId}
+                    memberName={`${member.firstName} ${member.lastName}`.trim()}
+                  />
+                )}
               </div>
             </div>
           ))}

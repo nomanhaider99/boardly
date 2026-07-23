@@ -142,6 +142,7 @@ export function BoardSettingsDialog({
                   boardId={boardId}
                   labels={labels}
                   onLabelsChange={onLabelsChange}
+                  isOwner={isOwner}
                 />
               )}
               {tab === "board" && <BoardTab boardId={boardId} isOwner={isOwner} />}
@@ -420,10 +421,12 @@ function LabelsTab({
   boardId,
   labels,
   onLabelsChange,
+  isOwner,
 }: {
   boardId: string;
   labels: CardLabel[];
   onLabelsChange: (labels: CardLabel[]) => void;
+  isOwner: boolean;
 }) {
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -471,13 +474,14 @@ function LabelsTab({
             <LabelEditorRow
               key={l.id}
               label={l}
+              isOwner={isOwner}
               onUpdated={(updated) => onLabelsChange(labels.map((x) => (x.id === updated.id ? updated : x)))}
               onDeleted={(id) => onLabelsChange(labels.filter((x) => x.id !== id))}
             />
           ))}
         </div>
 
-        {creating ? (
+        {!isOwner ? null : creating ? (
           <div className="space-y-2 rounded-lg border border-border/60 p-2.5">
             <Input
               autoFocus
@@ -522,10 +526,12 @@ function LabelsTab({
 
 function LabelEditorRow({
   label,
+  isOwner,
   onUpdated,
   onDeleted,
 }: {
   label: CardLabel;
+  isOwner: boolean;
   onUpdated: (label: CardLabel) => void;
   onDeleted: (id: string) => void;
 }) {
@@ -576,12 +582,16 @@ function LabelEditorRow({
   return (
     <div className="group flex items-center gap-2 rounded-lg p-1.5 hover:bg-muted/50 transition-colors">
       <span className="flex-1"><LabelPill label={label} /></span>
-      <button onClick={() => setEditing(true)} className="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Edit label">
-        <Pencil className="h-3.5 w-3.5" />
-      </button>
-      <button onClick={remove} disabled={deleting} className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Delete label">
-        {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-      </button>
+      {isOwner && (
+        <>
+          <button onClick={() => setEditing(true)} className="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Edit label">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={remove} disabled={deleting} className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Delete label">
+            {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          </button>
+        </>
+      )}
     </div>
   );
 }

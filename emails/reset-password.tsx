@@ -8,10 +8,10 @@ interface ResetPasswordEmailProps {
 
 export function ResetPasswordEmail({ url }: ResetPasswordEmailProps) {
   return (
-    <BaseEmail preview="Reset your Boardly password">
+    <BaseEmail preview="Reset your Proboardive password">
       <Heading style={s.heading}>Reset your password</Heading>
       <Text style={s.body}>
-        We received a request to reset the password for your Boardly account.
+        We received a request to reset the password for your Proboardive account.
         Click the button below to choose a new password. This link expires in{" "}
         <strong>1 hour</strong>.
       </Text>

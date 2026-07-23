@@ -5,10 +5,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Eye, EyeOff, Loader2, CheckCircle2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle2, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   resetPasswordSchema,
+  passwordRules,
   type ResetPasswordValues,
 } from "@/lib/validations/auth";
 import { resetPassword } from "@/app/actions/auth";
@@ -25,10 +26,14 @@ function ResetPasswordForm() {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<ResetPasswordValues>({
     resolver: zodResolver(resetPasswordSchema),
+    mode: "onBlur",
   });
+
+  const password = watch("password", "");
 
   async function onSubmit(values: ResetPasswordValues) {
     if (!token) {
@@ -92,6 +97,7 @@ function ResetPasswordForm() {
               placeholder="••••••••"
               autoComplete="new-password"
               className="pr-10"
+              aria-invalid={!!errors.password}
               {...register("password")}
             />
             <button
@@ -104,10 +110,26 @@ function ResetPasswordForm() {
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          <p className="text-xs text-muted-foreground">Must be at least 8 characters</p>
-          {errors.password && (
-            <p className="text-xs text-destructive">{errors.password.message}</p>
-          )}
+          <ul className="grid gap-1 pt-0.5">
+            {passwordRules.map((rule) => {
+              const ok = rule.test(password);
+              return (
+                <li
+                  key={rule.label}
+                  className={`flex items-center gap-1.5 text-xs ${
+                    ok ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  {ok ? (
+                    <Check className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <X className="h-3 w-3 shrink-0 opacity-60" />
+                  )}
+                  {rule.label}
+                </li>
+              );
+            })}
+          </ul>
         </div>
 
         <div className="space-y-1.5">
@@ -117,6 +139,7 @@ function ResetPasswordForm() {
             type={showPassword ? "text" : "password"}
             placeholder="••••••••"
             autoComplete="new-password"
+            aria-invalid={!!errors.confirm}
             {...register("confirm")}
           />
           {errors.confirm && (

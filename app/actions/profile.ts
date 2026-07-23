@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { users } from "@/db/schema";
 import { getSession } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/password";
+import { passwordSchema } from "@/lib/validations/auth";
 
 export type ProfileActionResult = { success: boolean; error?: string };
 
@@ -36,7 +37,20 @@ export async function updateAvatar(url: string): Promise<ProfileActionResult> {
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
 
-  await db.update(users).set({ avatarUrl: url }).where(eq(users.id, session.userId));
+  const parsed = z.string().url().safeParse(url);
+  if (!parsed.success) return { success: false, error: "Invalid image URL." };
+
+  await db.update(users).set({ avatarUrl: parsed.data }).where(eq(users.id, session.userId));
+  return { success: true };
+}
+
+// Clears the avatar, reverting to the default initials avatar. We only null the
+// reference — nothing else depends on avatarUrl, so cards/comments are unaffected.
+export async function removeAvatar(): Promise<ProfileActionResult> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  await db.update(users).set({ avatarUrl: null }).where(eq(users.id, session.userId));
   return { success: true };
 }
 
@@ -47,8 +61,9 @@ export async function changePassword(data: {
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
 
-  if (data.newPassword.length < 8) {
-    return { success: false, error: "New password must be at least 8 characters." };
+  const parsedPw = passwordSchema.safeParse(data.newPassword);
+  if (!parsedPw.success) {
+    return { success: false, error: `New password: ${parsedPw.error.issues[0].message.toLowerCase()}.` };
   }
 
   const [user] = await db
@@ -75,7 +90,7 @@ export async function generate2FASetup(): Promise<{
   if (!session) return null;
 
   const secret = generateSecret();
-  const otpauthUrl = generateURI({ issuer: "Boardly", label: session.email, secret });
+  const otpauthUrl = generateURI({ issuer: "Proboardive", label: session.email, secret });
   const qrUrl = await QRCode.toDataURL(otpauthUrl);
 
   return { secret, qrUrl };

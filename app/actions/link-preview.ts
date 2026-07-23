@@ -83,7 +83,7 @@ export async function getLinkPreview(rawUrl: string): Promise<LinkPreview> {
       signal: controller.signal,
       redirect: "follow",
       headers: {
-        "user-agent": "Mozilla/5.0 (compatible; BoardlyBot/1.0; +https://boardly.app)",
+        "user-agent": "Mozilla/5.0 (compatible; ProboardiveBot/1.0; +https://proboardive.com)",
         accept: "text/html,application/xhtml+xml",
       },
     });

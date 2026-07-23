@@ -43,6 +43,10 @@ export async function sendInvite(
     .limit(1);
 
   if (!membership) return { success: false, error: "Workspace not found." };
+  // Only owners can invite new members (§15).
+  if (membership.role !== "owner") {
+    return { success: false, error: "Only workspace owners can send invitations." };
+  }
 
   // Not already a member
   const existingUser = await db
@@ -121,6 +125,40 @@ export async function sendInvite(
   }
 
   return { success: true, message: `Invite sent to ${invitedEmail}` };
+}
+
+// ─── Revoke a pending invite (owner only) ────────────────────────────────────
+export async function revokeInvite(inviteId: string): Promise<InviteActionResult> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Not authenticated." };
+
+  const [invite] = await db
+    .select({ workspaceId: workspaceInvites.workspaceId, status: workspaceInvites.status })
+    .from(workspaceInvites)
+    .where(eq(workspaceInvites.id, inviteId))
+    .limit(1);
+
+  if (!invite) return { success: false, error: "Invite not found." };
+
+  const [caller] = await db
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, invite.workspaceId),
+        eq(workspaceMembers.userId, session.userId)
+      )
+    )
+    .limit(1);
+
+  if (!caller || caller.role !== "owner") {
+    return { success: false, error: "Only workspace owners can revoke invitations." };
+  }
+
+  // Deleting the row invalidates the token — the invite link can no longer be
+  // accepted (acceptInviteByToken requires a matching pending row).
+  await db.delete(workspaceInvites).where(eq(workspaceInvites.id, inviteId));
+  return { success: true };
 }
 
 // ─── Get pending invites for current user ────────────────────────────────────
@@ -338,6 +376,19 @@ export async function getWorkspaceSentInvites(
 ): Promise<SentInvite[]> {
   const session = await getSession();
   if (!session) return [];
+
+  // Only workspace members may see who's been invited.
+  const [membership] = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, session.userId)
+      )
+    )
+    .limit(1);
+  if (!membership) return [];
 
   const rows = await db
     .select({

@@ -981,7 +981,7 @@ export function ChatPanel({ boardId, currentUserId }: Props) {
         onClick={() => setOpen(v => !v)}
         aria-label="Open board chat"
         className={cn(
-          "fixed bottom-6 right-44 z-50 flex items-center gap-2 rounded-full",
+          "fixed bottom-6 right-44 z-40 flex items-center gap-2 rounded-full",
           "border border-border/60 bg-card/90 backdrop-blur-sm px-3.5 py-2 text-sm font-medium shadow-md",
           "hover:bg-muted hover:shadow-lg transition-all duration-200",
           open ? "opacity-0 pointer-events-none scale-90" : "opacity-100 scale-100"

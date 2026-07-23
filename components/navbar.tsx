@@ -1,11 +1,11 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Bell } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users } from "@/db/schema";
 import { getPendingInviteCount } from "@/app/actions/invite";
+import { InviteBell } from "@/components/invite-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -35,7 +35,7 @@ export async function Navbar() {
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-8">
           <Link href="/" className="font-heading text-xl font-bold text-primary">
-            Boardly
+            Proboardive
           </Link>
 
           {!session && (
@@ -56,18 +56,7 @@ export async function Navbar() {
         <div className="flex items-center gap-2">
           {session ? (
             <>
-              <Link
-                href="/invites"
-                className={buttonVariants({ variant: "ghost", size: "icon" }) + " relative"}
-                aria-label="Invites"
-              >
-                <Bell className="h-4 w-4" />
-                {pendingCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
-                    {pendingCount > 9 ? "9+" : pendingCount}
-                  </span>
-                )}
-              </Link>
+              <InviteBell initialCount={pendingCount} />
               <Link
                 href="/dashboard"
                 className={buttonVariants({ variant: "default", size: "sm" })}

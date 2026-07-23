@@ -545,7 +545,7 @@ export function TrelloImportDialog({ boardId, boardName }: Props) {
                     </li>
                     <li>
                       Click{" "}
-                      <a href="https://trello.com/1/authorize?expiration=never&name=Boardly&scope=read&response_type=token&key=YOUR_API_KEY"
+                      <a href="https://trello.com/1/authorize?expiration=never&name=Proboardive&scope=read&response_type=token&key=YOUR_API_KEY"
                         target="_blank" rel="noopener noreferrer"
                         className="text-primary underline underline-offset-2 inline-flex items-center gap-0.5">
                         Generate Token <ExternalLink className="h-3 w-3" />

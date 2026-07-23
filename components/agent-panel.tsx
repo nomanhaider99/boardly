@@ -149,7 +149,7 @@ export function AgentPanel({
         onClick={() => onOpenChange(!open)}
         aria-label={open ? "Close agent panel" : "Open agent panel"}
         className={cn(
-          "fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full border border-primary/40 bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition-all duration-300",
+          "fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full border border-primary/40 bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition-all duration-300",
           "hover:bg-primary/90 hover:scale-105 hover:shadow-[0_0_24px_rgba(34,197,94,0.35)]",
           open
             ? "opacity-0 scale-90 pointer-events-none"
@@ -167,7 +167,7 @@ export function AgentPanel({
       {/* ── Chat panel ── */}
       <div
         className={cn(
-          "fixed bottom-6 right-6 z-50 flex w-[360px] flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden",
+          "fixed bottom-6 right-6 z-[60] flex w-[360px] flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden",
           "transition-all duration-300 ease-out",
           open
             ? "opacity-100 translate-y-0 pointer-events-auto"
