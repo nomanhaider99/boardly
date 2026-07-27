@@ -35,15 +35,17 @@ function formatBytes(bytes: number): string {
 interface CardAttachmentsProps {
   cardId: string;
   currentUserId: string;
-  initialAttachments: AttachmentWithUploader[];
+  /** Controlled by the card sheet so the comment box can add to it too. */
+  attachments: AttachmentWithUploader[];
+  onAttachmentsChange: (next: AttachmentWithUploader[]) => void;
 }
 
 export function CardAttachments({
   cardId,
   currentUserId,
-  initialAttachments,
+  attachments: attachmentList,
+  onAttachmentsChange,
 }: CardAttachmentsProps) {
-  const [attachmentList, setAttachmentList] = useState<AttachmentWithUploader[]>(initialAttachments);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
 
@@ -60,7 +62,7 @@ export function CardAttachments({
     const result = await deleteAttachment(id);
     setDeletingId(null);
     if (!result.success) { toast.error(result.error); return; }
-    setAttachmentList((prev) => prev.filter((a) => a.id !== id));
+    onAttachmentsChange(attachmentList.filter((a) => a.id !== id));
     toast.success("Attachment removed.");
   }
 
@@ -78,7 +80,7 @@ export function CardAttachments({
     const result = await renameAttachment(id, name);
     setSavingRename(false);
     if (!result.success) { toast.error(result.error); return; }
-    setAttachmentList((prev) => prev.map((a) => (a.id === id ? { ...a, fileName: name } : a)));
+    onAttachmentsChange(attachmentList.map((a) => (a.id === id ? { ...a, fileName: name } : a)));
     setEditingId(null);
     toast.success("Renamed.");
   }
@@ -186,6 +188,7 @@ export function CardAttachments({
             return allowed;
           }}
           onClientUploadComplete={async (files) => {
+            const added: AttachmentWithUploader[] = [];
             for (const file of files) {
               const result = await saveAttachment(cardId, {
                 url: file.ufsUrl,
@@ -194,20 +197,19 @@ export function CardAttachments({
                 type: file.type,
               });
               if (!result.success) { toast.error(result.error); continue; }
-              setAttachmentList((prev) => [
-                ...prev,
-                {
-                  id: crypto.randomUUID(),
-                  url: file.ufsUrl,
-                  type: attachmentType(file.type),
-                  fileName: file.name,
-                  size: file.size,
-                  createdAt: new Date(),
-                  uploadedByUserId: currentUserId,
-                  uploaderFirstName: "You",
-                },
-              ]);
+              added.push({
+                // The real row id, so rename/delete work without a reload.
+                id: result.attachmentId!,
+                url: file.ufsUrl,
+                type: attachmentType(file.type),
+                fileName: file.name,
+                size: file.size,
+                createdAt: new Date(),
+                uploadedByUserId: currentUserId,
+                uploaderFirstName: "You",
+              });
             }
+            if (added.length > 0) onAttachmentsChange([...attachmentList, ...added]);
             // Reveal newly uploaded items even if the list was collapsed.
             setShowAll(true);
             toast.success("Uploaded!");

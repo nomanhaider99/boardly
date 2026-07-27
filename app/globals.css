@@ -274,3 +274,43 @@ select {
 ::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in oklch, var(--muted-foreground) 52%, transparent);
 }
+
+/* ── Rich text (card descriptions & comments) ──
+   Styles for markup the Tailwind arbitrary-variant list can't express cleanly
+   (attribute selectors, ::before content). Applied via the `rich-prose` class. */
+.rich-prose figure {
+  @apply my-2 inline-block max-w-full rounded-lg border border-border/60 bg-muted/30 p-1;
+}
+
+.rich-prose figure img {
+  @apply m-0 block max-h-80 w-auto max-w-full rounded-md object-contain;
+}
+
+.rich-prose img {
+  @apply max-h-80 max-w-full rounded-md;
+}
+
+.rich-prose figcaption {
+  @apply px-1.5 py-1 text-xs text-muted-foreground italic;
+}
+
+.rich-prose figcaption:empty::before {
+  content: attr(data-placeholder);
+  @apply not-italic opacity-60;
+}
+
+/* File chip — non-image attachments referenced inline in a comment. */
+.rich-prose a[data-file] {
+  @apply inline-flex max-w-full items-center gap-1.5 rounded-md border border-border/60
+         bg-muted/50 px-2 py-1 align-middle text-xs font-medium text-foreground no-underline
+         transition-colors hover:bg-muted hover:text-primary;
+}
+
+.rich-prose a[data-file]::before {
+  content: "📎";
+  @apply text-[0.9em] leading-none;
+}
+
+.rich-prose code {
+  @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+}

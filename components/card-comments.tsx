@@ -1,12 +1,24 @@
 "use client";
 
-import { useState, useTransition, useRef, useEffect, useMemo } from "react";
-import { Loader2, Trash2, Send, ArrowRight, Search, X, Pencil, Check } from "lucide-react";
+import {
+  useState, useTransition, useRef, useEffect, useMemo, useImperativeHandle,
+  type Ref,
+} from "react";
+import { Loader2, Trash2, Send, ArrowRight, Search, X, Pencil, Check, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { addComment, deleteComment, editComment } from "@/app/actions/comment";
+import { saveAttachment } from "@/app/actions/attachment";
 import { Button } from "@/components/ui/button";
+import {
+  RichTextEditor, proseClass, sanitizeHtml, isRichText, isEmptyRichText,
+  richTextToPlain, escapeText, escapeAttr,
+  type RichTextEditorHandle,
+} from "@/components/rich-text";
+import { useUploadThing } from "@/lib/uploadthing";
+import { validateVideoFile } from "@/lib/video";
 import { cn } from "@/lib/utils";
 import type { CommentWithUser, MemberForMention } from "@/app/actions/comment";
+import type { AttachmentWithUploader } from "@/app/actions/attachment";
 
 // ── Avatar (image with deterministic-colour initials fallback) ──────────────
 
@@ -63,153 +75,243 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Highlight a search term inside a plain-text segment.
-function highlightSegment(text: string, query: string, keyPrefix: string) {
+// ── Body rendering ─────────────────────────────────────────────────────────
+
+const MENTION_CLASS =
+  "inline-flex items-center bg-primary/15 text-primary font-semibold px-1.5 py-0.5 " +
+  "rounded-md text-[0.85em] transition-colors cursor-default";
+const MARK_CLASS = "rounded bg-yellow-300/60 dark:bg-yellow-400/30 px-0.5 text-inherit";
+
+const MENTION_RE = /(@[A-Za-z]\w*)/g;
+
+/**
+ * Sanitize a stored comment body, then decorate its text nodes: @mentions get a
+ * chip, search hits get a <mark>. Legacy plain-text bodies are escaped first.
+ * Decoration runs after sanitizing so our own markup survives it.
+ */
+function decorateBody(raw: string, query: string): string {
+  if (typeof document === "undefined") return "";
+  const html = isRichText(raw) ? sanitizeHtml(raw) : escapeText(raw);
+  const doc = new DOMParser().parseFromString(html, "text/html");
   const q = query.trim();
-  if (!q) return <span key={keyPrefix}>{text}</span>;
-  const re = new RegExp(`(${escapeRegExp(q)})`, "ig");
-  const segs = text.split(re);
-  return (
-    <span key={keyPrefix}>
-      {segs.map((seg, j) =>
-        seg && q && seg.toLowerCase() === q.toLowerCase() ? (
-          <mark key={j} className="rounded bg-yellow-300/60 dark:bg-yellow-400/30 px-0.5 text-inherit">
-            {seg}
-          </mark>
-        ) : (
-          <span key={j}>{seg}</span>
-        )
-      )}
-    </span>
-  );
+
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    // Don't rewrite link labels or code spans.
+    if (node.parentElement?.closest("a, code")) continue;
+    textNodes.push(node);
+  }
+
+  const qRe = q ? new RegExp(`(${escapeRegExp(q)})`, "ig") : null;
+
+  for (const node of textNodes) {
+    const frag = doc.createDocumentFragment();
+    let changed = false;
+
+    const pushHighlighted = (text: string) => {
+      if (!qRe) {
+        if (text) frag.appendChild(doc.createTextNode(text));
+        return;
+      }
+      for (const seg of text.split(qRe)) {
+        if (!seg) continue;
+        if (seg.toLowerCase() === q.toLowerCase()) {
+          const mark = doc.createElement("mark");
+          mark.className = MARK_CLASS;
+          mark.textContent = seg;
+          frag.appendChild(mark);
+          changed = true;
+        } else {
+          frag.appendChild(doc.createTextNode(seg));
+        }
+      }
+    };
+
+    for (const part of node.data.split(MENTION_RE)) {
+      if (!part) continue;
+      if (/^@[A-Za-z]\w*$/.test(part)) {
+        const span = doc.createElement("span");
+        span.className = MENTION_CLASS;
+        span.textContent = part;
+        frag.appendChild(span);
+        changed = true;
+      } else {
+        pushHighlighted(part);
+      }
+    }
+
+    if (changed) node.replaceWith(frag);
+  }
+
+  return doc.body.innerHTML;
 }
 
-// Render a comment body: highlight @mentions, and optionally a search query.
-function renderBody(text: string, query = "") {
-  const parts = text.split(/(@[A-Za-z]\w*)/g);
-  return parts.map((part, i) =>
-    /^@[A-Za-z]\w*$/.test(part) ? (
-      <span key={i} className="inline-flex items-center bg-primary/15 text-primary font-semibold px-1.5 py-0.5 rounded-md text-[0.85em] hover:bg-primary/25 transition-colors cursor-default">
-        {part}
-      </span>
-    ) : (
-      highlightSegment(part, query, `s${i}`)
-    )
-  );
+function CommentBody({ body, query, className }: { body: string; query: string; className?: string }) {
+  const html = useMemo(() => decorateBody(body, query), [body, query]);
+  return <div className={cn(proseClass, className)} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-interface CardCommentsProps {
+// ── Mention plumbing inside contenteditable ────────────────────────────────
+
+type MentionHit = { search: string; node: Text; start: number; end: number };
+
+/** Locate an in-progress `@word` immediately before a collapsed caret. */
+function findMentionHit(root: HTMLElement | null): MentionHit | null {
+  if (!root) return null;
+  const sel = window.getSelection();
+  if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return null;
+
+  const node = sel.anchorNode;
+  if (!node || node.nodeType !== Node.TEXT_NODE || !root.contains(node)) return null;
+
+  const before = (node as Text).data.slice(0, sel.anchorOffset);
+  const match = before.match(/(^|\s)@(\w*)$/);
+  if (!match) return null;
+
+  return {
+    search: match[2],
+    node: node as Text,
+    start: before.length - match[2].length - 1, // index of the '@'
+    end: sel.anchorOffset,
+  };
+}
+
+/** Replace the in-progress `@word` with the finished mention plus a space. */
+function commitMention(root: HTMLElement | null, label: string): boolean {
+  const hit = findMentionHit(root);
+  if (!hit) return false;
+
+  const range = document.createRange();
+  range.setStart(hit.node, hit.start);
+  range.setEnd(hit.node, hit.end);
+  range.deleteContents();
+
+  // Non-breaking space so contenteditable cannot collapse it at a block end.
+  const text = document.createTextNode(`@${label}\u00a0`);
+  range.insertNode(text);
+
+  const after = document.createRange();
+  after.setStartAfter(text);
+  after.collapse(true);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(after);
+  return true;
+}
+
+// ── Editor (composer + inline edit share this) ─────────────────────────────
+
+function attachmentKind(mime: string): "image" | "video" | "document" {
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  return "document";
+}
+
+export type CommentEditorHandle = {
+  clear(): void;
+  focus(): void;
+  getHtml(): string;
+};
+
+interface CommentEditorProps {
   cardId: string;
   currentUserId: string;
-  initialComments: CommentWithUser[];
-  workspaceMembers: MemberForMention[];
+  initialHtml: string;
+  placeholder: string;
+  members: MemberForMention[];
   boardLabelMap?: Record<string, string>;
+  onChange: (html: string) => void;
+  onMentionUser: (userId: string, label: string) => void;
+  onAttachmentAdded?: (attachment: AttachmentWithUploader) => void;
+  onSubmitShortcut?: () => void;
+  autoFocus?: boolean;
+  editableClassName?: string;
+  ref?: Ref<CommentEditorHandle>;
 }
 
-export function CardComments({
+function CommentEditor({
   cardId,
   currentUserId,
-  initialComments,
-  workspaceMembers,
+  initialHtml,
+  placeholder,
+  members,
   boardLabelMap,
-}: CardCommentsProps) {
-  const [commentList, setCommentList] = useState<CommentWithUser[]>(initialComments);
-  const [body, setBody] = useState("");
-  const [mentionedIds, setMentionedIds] = useState<Set<string>>(new Set());
-  const [mentionState, setMentionState] = useState<{ search: string; atIndex: number } | null>(null);
+  onChange,
+  onMentionUser,
+  onAttachmentAdded,
+  onSubmitShortcut,
+  autoFocus,
+  editableClassName,
+  ref,
+}: CommentEditorProps) {
+  const rteRef = useRef<RichTextEditorHandle>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const mentionItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [mentionSearch, setMentionSearch] = useState<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [submitting, startSubmit] = useTransition();
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // Edit state
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState("");
-  const [savingEdit, setSavingEdit] = useState(false);
+  const { startUpload, isUploading } = useUploadThing("cardAttachment", {
+    onUploadError: (err) => { toast.error("Upload failed", { description: err.message }); },
+  });
 
-  // Search state
-  const [search, setSearch] = useState("");
+  useImperativeHandle(ref, () => ({
+    clear: () => { rteRef.current?.setHtml(""); setMentionSearch(null); },
+    focus: () => rteRef.current?.focus(),
+    getHtml: () => rteRef.current?.getHtml() ?? "",
+  }));
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const threadRef = useRef<HTMLDivElement>(null);
-
-  // Auto-resize textarea to fit content
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [body]);
-
-  const query = search.trim().toLowerCase();
-
-  // Comments that match the search (system rows excluded from search)
-  const visibleComments = useMemo(() => {
-    if (!query) return commentList;
-    return commentList.filter(
-      (c) => !c.isSystem && c.body.toLowerCase().includes(query)
-    );
-  }, [commentList, query]);
-
-  const matchCount = query ? visibleComments.length : 0;
-
-  // Scroll the first match into view when the query changes
-  useEffect(() => {
-    if (query && threadRef.current) {
-      threadRef.current.scrollTop = 0;
-    }
-  }, [query]);
-
+  // Every match is rendered — the list scrolls rather than truncating, so a
+  // board with more than a handful of members stays fully reachable.
   const filteredMembers =
-    mentionState !== null
-      ? workspaceMembers
-          .filter((m) => {
-            const q = mentionState.search.toLowerCase();
-            return (
-              m.firstName.toLowerCase().startsWith(q) ||
-              m.lastName.toLowerCase().startsWith(q)
-            );
-          })
-          .slice(0, 5)
-      : [];
+    mentionSearch === null
+      ? []
+      : members.filter((m) => {
+          const q = mentionSearch.toLowerCase();
+          return (
+            m.firstName.toLowerCase().startsWith(q) ||
+            m.lastName.toLowerCase().startsWith(q)
+          );
+        });
 
-  function handleBodyChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value;
-    setBody(val);
+  // Keep the keyboard-highlighted row visible as ↑↓ walks past the fold.
+  // "nearest" is a no-op when the row is already on screen, so hovering with the
+  // mouse (which also moves the highlight) never yanks the list around.
+  useEffect(() => {
+    if (mentionSearch === null) return;
+    mentionItemRefs.current[highlightedIndex]?.scrollIntoView({ block: "nearest" });
+  }, [highlightedIndex, mentionSearch]);
 
-    const pos = e.target.selectionStart ?? val.length;
-    const textBeforeCursor = val.slice(0, pos);
-    const match = textBeforeCursor.match(/(^|[\s\n])@(\w*)$/);
-    if (match) {
-      const atIndex = textBeforeCursor.lastIndexOf("@");
-      setMentionState({ search: match[2], atIndex });
+  function syncMentionState() {
+    const hit = findMentionHit(rteRef.current?.element() ?? null);
+    if (hit) {
+      setMentionSearch(hit.search);
       setHighlightedIndex(0);
     } else {
-      setMentionState(null);
+      setMentionSearch(null);
     }
+  }
+
+  function handleChange(html: string) {
+    onChange(html);
+    syncMentionState();
   }
 
   function selectMember(member: MemberForMention) {
-    if (!textareaRef.current || mentionState === null) return;
-    const cursorPos = textareaRef.current.selectionStart ?? body.length;
-    const before = body.slice(0, mentionState.atIndex);
-    const after = body.slice(cursorPos);
-    const mentionName = boardLabelMap?.[member.userId] ?? member.firstName;
-    const insertion = `@${mentionName} `;
-    setBody(before + insertion + after);
-    setMentionedIds((prev) => new Set([...prev, member.userId]));
-    setMentionState(null);
+    const el = rteRef.current?.element();
+    if (!el) return;
+    const label = boardLabelMap?.[member.userId] ?? member.firstName;
+    if (commitMention(el, label)) {
+      onMentionUser(member.userId, label);
+      onChange(el.innerHTML);
+    }
+    setMentionSearch(null);
     setHighlightedIndex(0);
-
-    requestAnimationFrame(() => {
-      if (!textareaRef.current) return;
-      const newPos = before.length + insertion.length;
-      textareaRef.current.setSelectionRange(newPos, newPos);
-      textareaRef.current.focus();
-    });
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (mentionState !== null && filteredMembers.length > 0) {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (mentionSearch !== null && filteredMembers.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setHighlightedIndex((i) => Math.min(i + 1, filteredMembers.length - 1));
@@ -226,31 +328,263 @@ export function CardComments({
         return;
       }
       if (e.key === "Escape") {
-        setMentionState(null);
+        e.preventDefault();
+        setMentionSearch(null);
         return;
       }
     }
 
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      handleSubmit();
+      e.preventDefault();
+      onSubmitShortcut?.();
     }
+  }
+
+  // Upload pasted/dropped/picked files, register them as card attachments, and
+  // drop a reference into the comment at the caret.
+  async function handleFiles(files: File[]) {
+    const allowed: File[] = [];
+    for (const file of files) {
+      const err = validateVideoFile(file);
+      if (err) { toast.error(err); continue; }
+      allowed.push(file);
+    }
+    if (allowed.length === 0) return;
+
+    let uploaded;
+    try {
+      uploaded = await startUpload(allowed);
+    } catch {
+      return; // onUploadError already surfaced this
+    }
+    if (!uploaded || uploaded.length === 0) return;
+
+    let inserted = 0;
+    for (const file of uploaded) {
+      const type = file.type ?? "";
+      const result = await saveAttachment(cardId, {
+        url: file.ufsUrl,
+        name: file.name,
+        size: file.size,
+        type,
+      });
+      if (!result.success) { toast.error(result.error); continue; }
+
+      onAttachmentAdded?.({
+        id: result.attachmentId!,
+        url: file.ufsUrl,
+        type: attachmentKind(type),
+        fileName: file.name,
+        size: file.size,
+        createdAt: new Date(),
+        uploadedByUserId: currentUserId,
+        uploaderFirstName: "You",
+      });
+
+      if (type.startsWith("image/")) {
+        // Caret lands in the caption so a description can be typed right away.
+        rteRef.current?.insertHtml(
+          `<figure><img src="${escapeAttr(file.ufsUrl)}" alt="${escapeAttr(file.name)}">` +
+            `<figcaption data-placeholder="Add a caption…"></figcaption></figure><div><br></div>`,
+          { caretInto: "figcaption" }
+        );
+      } else {
+        rteRef.current?.insertHtml(
+          `<a href="${escapeAttr(file.ufsUrl)}" data-file="1" target="_blank" rel="noopener noreferrer">` +
+            `${escapeText(file.name)}</a>&nbsp;`
+        );
+      }
+      inserted++;
+    }
+
+    onChange(rteRef.current?.getHtml() ?? "");
+    if (inserted > 0) {
+      toast.success(inserted === 1 ? "Attached to this card." : `${inserted} files attached to this card.`);
+    }
+  }
+
+  return (
+    <div className="relative">
+      {/* Mention dropdown */}
+      {mentionSearch !== null && filteredMembers.length > 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1.5 z-20 rounded-xl border border-border/70 bg-popover/95 backdrop-blur-xl shadow-xl ring-1 ring-foreground/5 overflow-hidden">
+          <div className="flex items-center justify-between px-3 pt-2 pb-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Tag a member ({filteredMembers.length})
+            </span>
+            <span className="text-[10px] text-muted-foreground/70">↑↓ to navigate · ↵ to select</span>
+          </div>
+          <div className="max-h-64 overflow-y-auto overscroll-contain pb-1">
+            {filteredMembers.map((m, i) => {
+              const label = boardLabelMap?.[m.userId] ?? `${m.firstName} ${m.lastName}`.trim();
+              const active = i === highlightedIndex;
+              return (
+                <button
+                  key={m.userId}
+                  ref={(el) => { mentionItemRefs.current[i] = el; }}
+                  type="button"
+                  onMouseEnter={() => setHighlightedIndex(i)}
+                  onMouseDown={(e) => { e.preventDefault(); selectMember(m); }}
+                  className={cn(
+                    "w-full flex items-center gap-2.5 px-2.5 py-1.5 mx-1 rounded-lg text-sm text-left transition-colors",
+                    active ? "bg-primary/10" : "hover:bg-muted/50"
+                  )}
+                  style={{ width: "calc(100% - 0.5rem)" }}
+                >
+                  <MemberAvatar
+                    userId={m.userId}
+                    name={m.firstName}
+                    avatarUrl={m.avatarUrl}
+                    className="h-8 w-8 text-xs ring-2 ring-background"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className={cn("text-sm font-medium truncate leading-tight", active && "text-primary")}>
+                      {label}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground truncate leading-tight">
+                      {`${m.firstName} ${m.lastName}`.trim()}
+                    </p>
+                  </div>
+                  {active && (
+                    <span className="text-[10px] font-semibold text-primary shrink-0">Tag</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <RichTextEditor
+        ref={rteRef}
+        initialHtml={initialHtml}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onFiles={handleFiles}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+        editableClassName={cn("min-h-[4.5rem] max-h-72", editableClassName)}
+        toolbarExtra={
+          <>
+            <button
+              type="button"
+              title="Attach a file"
+              aria-label="Attach a file"
+              disabled={isUploading}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => fileInputRef.current?.click()}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {isUploading
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Paperclip className="h-3.5 w-3.5" />}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const picked = [...(e.target.files ?? [])];
+                e.target.value = "";
+                if (picked.length > 0) handleFiles(picked);
+              }}
+            />
+          </>
+        }
+      />
+
+      {isUploading && (
+        <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Uploading…
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Thread ─────────────────────────────────────────────────────────────────
+
+interface CardCommentsProps {
+  cardId: string;
+  currentUserId: string;
+  initialComments: CommentWithUser[];
+  workspaceMembers: MemberForMention[];
+  boardLabelMap?: Record<string, string>;
+  /** Files attached from the comment box also land in the card's attachments. */
+  onAttachmentAdded?: (attachment: AttachmentWithUploader) => void;
+}
+
+export function CardComments({
+  cardId,
+  currentUserId,
+  initialComments,
+  workspaceMembers,
+  boardLabelMap,
+  onAttachmentAdded,
+}: CardCommentsProps) {
+  const [commentList, setCommentList] = useState<CommentWithUser[]>(initialComments);
+  const [body, setBody] = useState("");
+  const [mentions, setMentions] = useState<Map<string, string>>(new Map());
+  const [submitting, startSubmit] = useTransition();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Edit state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editMentions, setEditMentions] = useState<Map<string, string>>(new Map());
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Search state
+  const [search, setSearch] = useState("");
+
+  const composerRef = useRef<CommentEditorHandle>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
+
+  const query = search.trim().toLowerCase();
+
+  // Comments that match the search (system rows excluded from search).
+  // Matching runs against the plain-text projection so markup and image URLs
+  // can't produce phantom hits.
+  const visibleComments = useMemo(() => {
+    if (!query) return commentList;
+    return commentList.filter(
+      (c) => !c.isSystem && richTextToPlain(c.body).toLowerCase().includes(query)
+    );
+  }, [commentList, query]);
+
+  const matchCount = query ? visibleComments.length : 0;
+
+  // Scroll the first match into view when the query changes
+  useEffect(() => {
+    if (query && threadRef.current) {
+      threadRef.current.scrollTop = 0;
+    }
+  }, [query]);
+
+  // Only report mentions whose chip is still present in the body — a user who
+  // typed then deleted a mention shouldn't get notified.
+  function liveMentionIds(html: string, map: Map<string, string>): string[] {
+    const plain = richTextToPlain(html);
+    return [...map].filter(([, label]) => plain.includes(`@${label}`)).map(([id]) => id);
   }
 
   function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
-    const trimmed = body.trim();
-    if (!trimmed) return;
+    const html = sanitizeHtml(composerRef.current?.getHtml() ?? body);
+    if (isEmptyRichText(html)) return;
 
     startSubmit(async () => {
       const result = await addComment(cardId, {
-        body: trimmed,
-        mentionedUserIds: [...mentionedIds],
+        body: html,
+        mentionedUserIds: liveMentionIds(html, mentions),
       });
       if (!result.success) { toast.error(result.error); return; }
       setCommentList((prev) => [
         {
           id: result.commentId!,
-          body: trimmed,
+          body: html,
           createdAt: new Date(),
           editedAt: null,
           userId: currentUserId,
@@ -262,8 +596,8 @@ export function CardComments({
         ...prev,
       ]);
       setBody("");
-      setMentionedIds(new Set());
-      setMentionState(null);
+      setMentions(new Map());
+      composerRef.current?.clear();
     });
   }
 
@@ -278,30 +612,32 @@ export function CardComments({
   function startEdit(comment: CommentWithUser) {
     setEditingId(comment.id);
     setEditDraft(comment.body);
+    setEditMentions(new Map());
   }
 
   function cancelEdit() {
     setEditingId(null);
     setEditDraft("");
+    setEditMentions(new Map());
   }
 
   async function saveEdit(id: string) {
-    const trimmed = editDraft.trim();
-    if (!trimmed) return;
+    const html = sanitizeHtml(editDraft);
+    if (isEmptyRichText(html)) return;
     setSavingEdit(true);
-    const result = await editComment(id, trimmed);
+    const result = await editComment(id, html, liveMentionIds(html, editMentions));
     setSavingEdit(false);
     if (!result.success) { toast.error(result.error); return; }
     const now = new Date();
     setCommentList((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, body: trimmed, editedAt: now } : c))
+      prev.map((c) => (c.id === id ? { ...c, body: html, editedAt: now } : c))
     );
-    setEditingId(null);
-    setEditDraft("");
+    cancelEdit();
     toast.success("Comment updated.");
   }
 
   const nonSystemCount = commentList.filter((c) => !c.isSystem).length;
+  const canSubmit = !isEmptyRichText(body);
 
   return (
     <div className="space-y-4">
@@ -337,70 +673,27 @@ export function CardComments({
 
       {/* Composer */}
       <form onSubmit={handleSubmit} className="space-y-2">
-        <div className="relative">
-          {/* Mention dropdown */}
-          {mentionState !== null && filteredMembers.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1.5 z-20 rounded-xl border border-border/70 bg-popover/95 backdrop-blur-xl shadow-xl ring-1 ring-foreground/5 overflow-hidden">
-              <div className="flex items-center justify-between px-3 pt-2 pb-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Tag a member
-                </span>
-                <span className="text-[10px] text-muted-foreground/70">↑↓ to navigate · ↵ to select</span>
-              </div>
-              <div className="max-h-56 overflow-y-auto pb-1">
-                {filteredMembers.map((m, i) => {
-                  const label = boardLabelMap?.[m.userId] ?? `${m.firstName} ${m.lastName}`.trim();
-                  const active = i === highlightedIndex;
-                  return (
-                    <button
-                      key={m.userId}
-                      type="button"
-                      onMouseEnter={() => setHighlightedIndex(i)}
-                      onMouseDown={(e) => { e.preventDefault(); selectMember(m); }}
-                      className={cn(
-                        "w-full flex items-center gap-2.5 px-2.5 py-1.5 mx-1 rounded-lg text-sm text-left transition-colors",
-                        active ? "bg-primary/10" : "hover:bg-muted/50"
-                      )}
-                      style={{ width: "calc(100% - 0.5rem)" }}
-                    >
-                      <MemberAvatar
-                        userId={m.userId}
-                        name={m.firstName}
-                        avatarUrl={m.avatarUrl}
-                        className="h-8 w-8 text-xs ring-2 ring-background"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className={cn("text-sm font-medium truncate leading-tight", active && "text-primary")}>
-                          {label}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground truncate leading-tight">
-                          {`${m.firstName} ${m.lastName}`.trim()}
-                        </p>
-                      </div>
-                      {active && (
-                        <span className="text-[10px] font-semibold text-primary shrink-0">Tag</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <textarea
-            ref={textareaRef}
-            value={body}
-            onChange={handleBodyChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Write a comment… (type @ to mention someone)"
-            rows={1}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-none overflow-hidden focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground min-h-[4rem] transition-[height]"
-          />
-        </div>
+        <CommentEditor
+          ref={composerRef}
+          cardId={cardId}
+          currentUserId={currentUserId}
+          initialHtml=""
+          placeholder="Write a comment… (@ to mention, paste or drop a file to attach)"
+          members={workspaceMembers}
+          boardLabelMap={boardLabelMap}
+          onChange={setBody}
+          onMentionUser={(userId, label) =>
+            setMentions((prev) => new Map(prev).set(userId, label))
+          }
+          onAttachmentAdded={onAttachmentAdded}
+          onSubmitShortcut={handleSubmit}
+        />
 
         <div className="flex items-center justify-between">
-          <p className="text-[10px] text-muted-foreground">⌘ + Enter to submit</p>
-          <Button type="submit" size="sm" disabled={submitting || !body.trim()} className="gap-1.5">
+          <p className="text-[10px] text-muted-foreground">
+            ⌘ + Enter to submit · files are attached to the card too
+          </p>
+          <Button type="submit" size="sm" disabled={submitting || !canSubmit} className="gap-1.5">
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             Comment
           </Button>
@@ -465,22 +758,27 @@ export function CardComments({
 
                 {editingId === comment.id ? (
                   <div className="space-y-2 pl-8">
-                    <textarea
+                    <CommentEditor
+                      key={comment.id}
+                      cardId={cardId}
+                      currentUserId={currentUserId}
+                      initialHtml={comment.body}
+                      placeholder="Edit your comment…"
+                      members={workspaceMembers}
+                      boardLabelMap={boardLabelMap}
+                      onChange={setEditDraft}
+                      onMentionUser={(userId, label) =>
+                        setEditMentions((prev) => new Map(prev).set(userId, label))
+                      }
+                      onAttachmentAdded={onAttachmentAdded}
+                      onSubmitShortcut={() => saveEdit(comment.id)}
                       autoFocus
-                      value={editDraft}
-                      onChange={(e) => setEditDraft(e.target.value)}
-                      rows={3}
-                      className="w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring/50"
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") cancelEdit();
-                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveEdit(comment.id);
-                      }}
                     />
                     <div className="flex gap-2">
                       <Button
                         size="sm"
                         onClick={() => saveEdit(comment.id)}
-                        disabled={savingEdit || !editDraft.trim()}
+                        disabled={savingEdit || isEmptyRichText(editDraft)}
                         className="h-7 gap-1.5 text-xs"
                       >
                         {savingEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
@@ -493,9 +791,11 @@ export function CardComments({
                   </div>
                 ) : (
                   <>
-                    <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap break-words pl-8">
-                      {renderBody(comment.body, query)}
-                    </p>
+                    <CommentBody
+                      body={comment.body}
+                      query={query}
+                      className="text-foreground/90 pl-8"
+                    />
                     {comment.editedAt && (
                       <p className="pl-8 text-[10px] text-muted-foreground/70 italic">
                         Edited on {formatEdited(comment.editedAt)}

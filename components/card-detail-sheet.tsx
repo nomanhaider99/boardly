@@ -610,7 +610,8 @@ export function CardDetailDialog({
                   <CardAttachments
                     cardId={card.id}
                     currentUserId={currentUserId}
-                    initialAttachments={attachments}
+                    attachments={attachments}
+                    onAttachmentsChange={setAttachments}
                   />
                 )}
               </div>
@@ -629,6 +630,9 @@ export function CardDetailDialog({
                     initialComments={comments}
                     workspaceMembers={members}
                     boardLabelMap={boardLabelMap}
+                    onAttachmentAdded={(att) =>
+                      setAttachments((prev) => [...prev, att])
+                    }
                   />
                 )}
               </div>

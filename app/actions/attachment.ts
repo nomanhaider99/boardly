@@ -8,7 +8,7 @@ import { UTApi } from "uploadthing/server";
 import { MAX_VIDEO_BYTES, ALLOWED_VIDEO_TYPES } from "@/lib/video";
 
 export type AttachmentActionResult =
-  | { success: true }
+  | { success: true; attachmentId?: string }
   | { success: false; error: string };
 
 async function assertCardMember(cardId: string, userId: string) {
@@ -45,16 +45,19 @@ export async function saveAttachment(
     }
   }
 
-  await db.insert(attachments).values({
-    cardId,
-    url: file.url,
-    type: isImage ? "image" : isVideo ? "video" : "document",
-    fileName: file.name,
-    size: file.size,
-    uploadedByUserId: session.userId,
-  });
+  const [row] = await db
+    .insert(attachments)
+    .values({
+      cardId,
+      url: file.url,
+      type: isImage ? "image" : isVideo ? "video" : "document",
+      fileName: file.name,
+      size: file.size,
+      uploadedByUserId: session.userId,
+    })
+    .returning({ id: attachments.id });
 
-  return { success: true };
+  return { success: true, attachmentId: row.id };
 }
 
 export async function deleteAttachment(attachmentId: string): Promise<AttachmentActionResult> {
