@@ -119,7 +119,9 @@ export async function updateCard(
   const update: Partial<typeof cards.$inferInsert> = {};
   if (data.title !== undefined) update.title = data.title;
   if (data.description !== undefined) update.description = data.description;
-  if ("dueDate" in data) update.dueDate = data.dueDate ?? undefined;
+  // Pass null through so clearing a due date persists as NULL. Coalescing to
+  // undefined would make Drizzle omit the column and leave the old date intact.
+  if ("dueDate" in data) update.dueDate = data.dueDate;
   if ("bannerUrl" in data) update.bannerUrl = data.bannerUrl;
 
   await db.update(cards).set(update).where(eq(cards.id, cardId));

@@ -133,7 +133,7 @@ export async function POST(
 
   const result = streamText({
     model,
-    system: `You are Boardly's AI board agent for the board "${board.name}".
+    system: `You are Proboardive's AI board agent for the board "${board.name}".
 You are acting on behalf of ${actingUserName}. Every action you take (posting comments, moving cards) will be recorded as if they performed it manually. Do not impersonate anyone else or take actions outside this board.
 
 You have three tools available:

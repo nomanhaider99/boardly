@@ -95,10 +95,10 @@ export function ListColumn({
     <div
       ref={setNodeRef}
       style={style}
-      className="w-64 shrink-0 flex flex-col rounded-xl bg-card/70 backdrop-blur-xl border border-white/10 shadow-lg shadow-black/10 max-h-[calc(100vh-180px)]"
+      className="w-64 shrink-0 flex flex-col rounded-xl bg-card/70 backdrop-blur-xl border border-white/10 shadow-lg shadow-black/10 max-h-full"
     >
       {/* List header */}
-      <div className="flex items-center gap-1 px-3 pt-3 pb-2">
+      <div className="flex items-start gap-1 px-3 pt-3 pb-2">
         <button
           {...attributes}
           {...listeners}
@@ -125,14 +125,15 @@ export function ListColumn({
           </div>
         ) : (
           <button
-            className="flex-1 text-left text-sm font-semibold truncate hover:text-primary transition-colors"
+            className="flex-1 text-left text-sm font-semibold break-words whitespace-normal leading-snug hover:text-primary transition-colors"
             onClick={() => setEditingTitle(true)}
+            title={list.title}
           >
             {list.title}
           </button>
         )}
 
-        <span className="text-xs text-muted-foreground shrink-0">{cards.length}</span>
+        <span className="text-xs text-muted-foreground shrink-0 mt-0.5">{cards.length}</span>
 
         <div className="relative">
           <button

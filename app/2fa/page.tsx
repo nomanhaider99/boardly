@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { get2FAPendingSession } from "@/lib/auth";
 import { TwoFAForm } from "@/components/two-fa-form";
 
-export const metadata = { title: "Two-Factor Authentication — Boardly" };
+export const metadata = { title: "Two-Factor Authentication" };
 
 export default async function TwoFAPage() {
   const pending = await get2FAPendingSession();

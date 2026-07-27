@@ -46,6 +46,22 @@ async function getBoardIdForLabel(labelId: string): Promise<string | null> {
   return label?.boardId ?? null;
 }
 
+// True only if the user is an owner of the board's workspace.
+async function assertBoardOwner(boardId: string, userId: string): Promise<boolean> {
+  const [board] = await db
+    .select({ workspaceId: boards.workspaceId })
+    .from(boards)
+    .where(eq(boards.id, boardId))
+    .limit(1);
+  if (!board) return false;
+  const [m] = await db
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.workspaceId, board.workspaceId), eq(workspaceMembers.userId, userId)))
+    .limit(1);
+  return m?.role === "owner";
+}
+
 // Seed the built-in priority labels for a board. Safe to call once at creation.
 export async function seedPriorityLabels(boardId: string): Promise<void> {
   await db.insert(cardLabels).values(
@@ -160,11 +176,25 @@ export async function updateLabel(
 export async function deleteLabel(labelId: string): Promise<LabelActionResult> {
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
-  const boardId = await getBoardIdForLabel(labelId);
-  if (!boardId) return { success: false, error: "Label not found." };
-  const member = await assertBoardMember(boardId, session.userId);
-  if (!member) return { success: false, error: "Not authorized." };
 
+  const [label] = await db
+    .select({ boardId: cardLabels.boardId, type: cardLabels.type })
+    .from(cardLabels)
+    .where(eq(cardLabels.id, labelId))
+    .limit(1);
+  if (!label) return { success: false, error: "Label not found." };
+
+  // Built-in priority labels are structural and must not be deleted.
+  if (label.type === "priority") {
+    return { success: false, error: "Built-in priority labels can't be deleted." };
+  }
+
+  // Deleting labels is destructive board-config — owner only (§15/§16).
+  const isOwner = await assertBoardOwner(label.boardId, session.userId);
+  if (!isOwner) return { success: false, error: "Only workspace owners can delete labels." };
+
+  // Assignments are removed via ON DELETE CASCADE, so the label disappears
+  // from every card that used it.
   await db.delete(cardLabels).where(eq(cardLabels.id, labelId));
   return { success: true };
 }

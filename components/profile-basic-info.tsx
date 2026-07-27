@@ -4,12 +4,14 @@ import { useState, useRef } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Pencil, User } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { updateProfile, updateAvatar } from "@/app/actions/profile";
+import { updateProfile, updateAvatar, removeAvatar } from "@/app/actions/profile";
 import { useUploadThing } from "@/lib/uploadthing";
+
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024; // matches the 2MB uploadthing limit
 
 interface Props {
   firstName: string;
@@ -24,6 +26,7 @@ export function ProfileBasicInfo({ firstName, lastName, email, avatarUrl }: Prop
   const [last, setLast] = useState(lastName);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [removingAvatar, setRemovingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { startUpload } = useUploadThing("userAvatar", {
@@ -47,9 +50,33 @@ export function ProfileBasicInfo({ firstName, lastName, email, avatarUrl }: Prop
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    // Reset the input so re-selecting the same file after an error still fires.
+    e.target.value = "";
     if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file.");
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      toast.error("Image is too large. Maximum size is 2MB.");
+      return;
+    }
+
     setUploading(true);
     await startUpload([file]);
+  }
+
+  async function handleRemoveAvatar() {
+    setRemovingAvatar(true);
+    const result = await removeAvatar();
+    setRemovingAvatar(false);
+    if (result.success) {
+      toast.success("Profile picture removed.");
+      router.refresh();
+    } else {
+      toast.error(result.error ?? "Failed to remove profile picture.");
+    }
   }
 
   async function handleSave() {
@@ -100,11 +127,22 @@ export function ProfileBasicInfo({ firstName, lastName, email, avatarUrl }: Prop
             onChange={handleAvatarChange}
           />
         </div>
-        <div>
+        <div className="space-y-1.5">
           <p className="text-sm font-medium">
             {firstName} {lastName}
           </p>
           <p className="text-xs text-muted-foreground">{email}</p>
+          {avatarUrl && (
+            <button
+              type="button"
+              onClick={handleRemoveAvatar}
+              disabled={removingAvatar || uploading}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="h-3 w-3" />
+              {removingAvatar ? "Removing…" : "Delete profile picture"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -140,7 +178,13 @@ export function ProfileBasicInfo({ firstName, lastName, email, avatarUrl }: Prop
       <div className="flex justify-end">
         <Button
           onClick={handleSave}
-          disabled={saving || uploading || (first === firstName && last === lastName)}
+          disabled={
+            saving ||
+            uploading ||
+            !first.trim() ||
+            !last.trim() ||
+            (first === firstName && last === lastName)
+          }
           size="sm"
         >
           {saving ? "Saving…" : "Save changes"}

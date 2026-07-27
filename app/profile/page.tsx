@@ -9,7 +9,7 @@ import { ProfileBasicInfo } from "@/components/profile-basic-info";
 import { ProfilePassword } from "@/components/profile-password";
 import { Profile2FA } from "@/components/profile-2fa";
 
-export const metadata = { title: "Profile — Boardly" };
+export const metadata = { title: "Profile" };
 
 export default async function ProfilePage() {
   const session = await getSession();

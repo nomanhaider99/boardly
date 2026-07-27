@@ -16,7 +16,7 @@ const transporter = nodemailer.createTransport({
 });
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-const from = process.env.EMAIL_FROM ?? "Boardly <noreply@boardly.app>";
+const from = process.env.EMAIL_FROM ?? "Proboardive <noreply@proboardive.com>";
 
 export async function sendVerificationEmail(
   to: string,
@@ -27,7 +27,7 @@ export async function sendVerificationEmail(
   await transporter.sendMail({
     from,
     to,
-    subject: "Verify your Boardly account",
+    subject: "Verify your Proboardive account",
     html,
   });
 }
@@ -45,7 +45,7 @@ export async function sendWorkspaceInviteEmail(
   await transporter.sendMail({
     from,
     to,
-    subject: `${inviterName} invited you to ${workspaceName} on Boardly`,
+    subject: `${inviterName} invited you to ${workspaceName} on Proboardive`,
     html,
   });
 }
@@ -59,7 +59,7 @@ export async function sendPasswordResetEmail(
   await transporter.sendMail({
     from,
     to,
-    subject: "Reset your Boardly password",
+    subject: "Reset your Proboardive password",
     html,
   });
 }

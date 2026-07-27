@@ -75,7 +75,7 @@ const features = [
 
 const testimonials = [
   {
-    quote: "Boardly replaced three tools we were using. Our team ships faster now because everything lives in one place.",
+    quote: "Proboardive replaced three tools we were using. Our team ships faster now because everything lives in one place.",
     name: "Sarah Chen",
     role: "Product Manager, Acme Corp",
     initials: "SC",
@@ -180,7 +180,7 @@ function BoardPreview() {
             <span className="h-3 w-3 rounded-full bg-green-500/70" />
           </div>
           <div className="ml-3 flex-1 max-w-xs rounded-md bg-muted/60 px-3 py-1 text-[11px] text-muted-foreground">
-            boardly.app/board/q3-launch
+            proboardive.com/board/q3-launch
           </div>
         </div>
 
@@ -243,9 +243,44 @@ function BoardPreview() {
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://proboardive.com";
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${siteUrl}/#organization`,
+      name: "Proboardive",
+      url: siteUrl,
+      logo: `${siteUrl}/opengraph-image`,
+      email: "info@proboardive.com",
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "Proboardive",
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      url: siteUrl,
+      description:
+        "A kanban workspace for teams: drag-and-drop boards, real-time collaboration, card comments, and an AI board agent that takes action for you.",
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD",
+      },
+      publisher: { "@id": `${siteUrl}/#organization` },
+    },
+  ],
+};
+
 export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Navbar />
 
       <main className="flex-1">
@@ -301,12 +336,12 @@ export default function HomePage() {
           <BoardPreview />
         </section>
 
-        {/* ── Why Choose Boardly ── */}
+        {/* ── Why Choose Proboardive ── */}
         <section className="border-t border-border/40 bg-muted/20 px-4 py-24 sm:px-8">
           <div className="mx-auto max-w-6xl space-y-14">
             <div className="text-center space-y-4">
               <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-4 py-1.5 text-xs font-medium text-primary">
-                ✦ Why Choose Boardly
+                ✦ Why Choose Proboardive
               </div>
               <h2 className="font-heading text-3xl font-bold sm:text-4xl">
                 Everything your team needs

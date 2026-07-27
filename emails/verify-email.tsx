@@ -8,10 +8,10 @@ interface VerifyEmailProps {
 
 export function VerifyEmail({ url }: VerifyEmailProps) {
   return (
-    <BaseEmail preview="Verify your Boardly account">
+    <BaseEmail preview="Verify your Proboardive account">
       <Heading style={s.heading}>Verify your email address</Heading>
       <Text style={s.body}>
-        Thanks for signing up for Boardly! Click the button below to confirm
+        Thanks for signing up for Proboardive! Click the button below to confirm
         your email address and activate your account. This link expires in{" "}
         <strong>24 hours</strong>.
       </Text>

@@ -12,8 +12,8 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const from = process.env.EMAIL_FROM ?? "Boardly <noreply@boardly.app>";
-const to = process.env.CONTACT_EMAIL ?? process.env.EMAIL_FROM ?? "hello@boardly.app";
+const from = process.env.EMAIL_FROM ?? "Proboardive <noreply@proboardive.com>";
+const to = process.env.CONTACT_EMAIL ?? process.env.EMAIL_FROM ?? "info@proboardive.com";
 
 export async function submitContactForm(
   _prev: { success: boolean; error?: string } | null,
@@ -38,7 +38,7 @@ export async function submitContactForm(
       from,
       to,
       replyTo: `${name} <${email}>`,
-      subject: `Boardly contact form — ${name}`,
+      subject: `Proboardive contact form — ${name}`,
       html: `
         <p><strong>Name:</strong> ${name}</p>
         <p><strong>Email:</strong> ${email}</p>

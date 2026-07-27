@@ -14,6 +14,8 @@ import {
 } from "@/db/schema";
 import { getSession } from "@/lib/auth";
 
+const MAX_COMMENT_LENGTH = 20_000;
+
 export type CommentActionResult =
   | { success: true; commentId?: string }
   | { success: false; error: string };
@@ -36,7 +38,9 @@ export async function addComment(
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
 
-  const body = z.string().min(1).max(2000).safeParse(data.body);
+  // Bodies are rich-text HTML (embedded images, file links), so the cap is well
+  // above what the old plain-text composer needed.
+  const body = z.string().min(1).max(MAX_COMMENT_LENGTH).safeParse(data.body);
   if (!body.success) return { success: false, error: "Comment body is required." };
 
   const member = await assertCardMember(cardId, session.userId);
@@ -62,12 +66,13 @@ export async function addComment(
 
 export async function editComment(
   commentId: string,
-  body: string
+  body: string,
+  mentionedUserIds: string[] = []
 ): Promise<CommentActionResult> {
   const session = await getSession();
   if (!session) return { success: false, error: "Not authenticated." };
 
-  const parsed = z.string().min(1).max(2000).safeParse(body);
+  const parsed = z.string().min(1).max(MAX_COMMENT_LENGTH).safeParse(body);
   if (!parsed.success) return { success: false, error: "Comment body is required." };
 
   const [comment] = await db.select().from(comments).where(eq(comments.id, commentId)).limit(1);
@@ -79,6 +84,22 @@ export async function editComment(
     .update(comments)
     .set({ body: parsed.data, editedAt: new Date() })
     .where(eq(comments.id, commentId));
+
+  // Record mentions added during the edit. The table has no unique constraint,
+  // so filter against what's already there rather than relying on upsert.
+  if (mentionedUserIds.length > 0) {
+    const existing = await db
+      .select({ userId: commentMentions.mentionedUserId })
+      .from(commentMentions)
+      .where(eq(commentMentions.commentId, commentId));
+    const known = new Set(existing.map((r) => r.userId));
+    const fresh = [...new Set(mentionedUserIds)].filter((uid) => !known.has(uid));
+    if (fresh.length > 0) {
+      await db.insert(commentMentions).values(
+        fresh.map((uid) => ({ commentId, mentionedUserId: uid }))
+      );
+    }
+  }
 
   return { success: true, commentId };
 }

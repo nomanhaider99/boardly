@@ -19,18 +19,13 @@ import {
   delete2FAPendingSession,
 } from "@/lib/auth";
 import { sendVerificationEmail, sendPasswordResetEmail } from "@/lib/email";
-
-const signUpSchema = z.object({
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
-});
-
-const signInSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
-});
+// Server-side validation mirrors the client using the SAME shared schemas so a
+// bypassed client can't submit a weak password or malformed email.
+import {
+  signUpSchema,
+  signInSchema,
+  passwordSchema,
+} from "@/lib/validations/auth";
 
 export type ActionResult =
   | { success: true; message?: string }
@@ -42,6 +37,7 @@ export async function signUp(formData: FormData): Promise<ActionResult> {
     lastName: formData.get("lastName"),
     email: formData.get("email"),
     password: formData.get("password"),
+    confirm: formData.get("confirm"),
   };
 
   const parsed = signUpSchema.safeParse(raw);
@@ -199,8 +195,9 @@ export async function resetPassword(
   formData: FormData
 ): Promise<ActionResult> {
   const password = String(formData.get("password") ?? "");
-  if (password.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters." };
+  const parsedPw = passwordSchema.safeParse(password);
+  if (!parsedPw.success) {
+    return { success: false, error: parsedPw.error.issues[0].message };
   }
 
   const userId = await verifyResetToken(token);

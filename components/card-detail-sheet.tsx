@@ -228,6 +228,18 @@ export function CardDetailDialog({
     setEditingField(null);
   }
 
+  async function clearDueDate() {
+    if (!card) return;
+    setSaving(true);
+    const result = await updateCard(card.id, { dueDate: null });
+    setSaving(false);
+    if (!result.success) { toast.error(result.error); return; }
+    toast.success("Due date removed.");
+    onUpdated({ ...card, dueDate: null });
+    setDraftDueDate("");
+    setEditingField(null);
+  }
+
   async function handleBannerFile(file: File) {
     if (!card) return;
     const files = await startBannerUpload([file]);
@@ -299,12 +311,12 @@ export function CardDetailDialog({
 
             {/* Banner image */}
             {card.bannerUrl ? (
-              <div className="relative h-40 shrink-0 group/banner">
+              <div className="relative h-40 shrink-0 group/banner bg-muted/40 rounded-t-xl">
                 <Image
                   src={card.bannerUrl}
                   alt="Card cover"
                   fill
-                  className="object-cover rounded-t-xl"
+                  className="object-contain rounded-t-xl"
                   sizes="840px"
                   priority
                   // Proxied Trello covers need the caller's session cookie,
@@ -539,6 +551,18 @@ export function CardDetailDialog({
                         <Button variant="ghost" size="sm" onClick={cancelEdit}>
                           Cancel
                         </Button>
+                        {card.dueDate && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearDueDate}
+                            disabled={saving}
+                            className="ml-auto gap-1.5 text-destructive hover:text-destructive"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            Remove due date
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -586,7 +610,8 @@ export function CardDetailDialog({
                   <CardAttachments
                     cardId={card.id}
                     currentUserId={currentUserId}
-                    initialAttachments={attachments}
+                    attachments={attachments}
+                    onAttachmentsChange={setAttachments}
                   />
                 )}
               </div>
@@ -605,6 +630,9 @@ export function CardDetailDialog({
                     initialComments={comments}
                     workspaceMembers={members}
                     boardLabelMap={boardLabelMap}
+                    onAttachmentAdded={(att) =>
+                      setAttachments((prev) => [...prev, att])
+                    }
                   />
                 )}
               </div>

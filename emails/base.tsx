@@ -23,14 +23,14 @@ export function BaseEmail({ preview, children }: BaseEmailProps) {
       <Body style={s.body}>
         <Container style={s.container}>
           <Section style={s.header}>
-            <Text style={s.wordmark}>Boardly</Text>
+            <Text style={s.wordmark}>Proboardive</Text>
           </Section>
           <Hr style={s.divider} />
           <Section style={s.content}>{children}</Section>
           <Hr style={s.divider} />
           <Section style={s.footerSection}>
             <Text style={s.footer}>
-              © 2025 Boardly · You received this because an action was taken on
+              © 2026 Proboardive · You received this because an action was taken on
               your account. If this wasn&apos;t you, you can safely ignore this
               email.
             </Text>

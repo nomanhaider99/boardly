@@ -14,11 +14,11 @@ export function WorkspaceInviteEmail({
   inviterName,
 }: WorkspaceInviteEmailProps) {
   return (
-    <BaseEmail preview={`${inviterName} invited you to ${workspaceName} on Boardly`}>
+    <BaseEmail preview={`${inviterName} invited you to ${workspaceName} on Proboardive`}>
       <Heading style={s.heading}>You&apos;ve been invited!</Heading>
       <Text style={s.body}>
         <strong>{inviterName}</strong> has invited you to join the{" "}
-        <strong>{workspaceName}</strong> workspace on Boardly. Accept the
+        <strong>{workspaceName}</strong> workspace on Proboardive. Accept the
         invitation below to start collaborating.
       </Text>
       <Button href={url} style={s.cta}>

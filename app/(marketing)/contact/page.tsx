@@ -1,6 +1,5 @@
 "use client";
 
-import type { Metadata } from "next";
 import { useActionState } from "react";
 import { Mail, MapPin, MessageSquare, Loader2, CheckCircle2 } from "lucide-react";
 import { submitContactForm } from "@/app/actions/contact";
@@ -8,15 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-// Metadata must be in a server component — omit here since layout handles title
-// export const metadata: Metadata = { title: "Contact — Boardly" };
-
 const contactDetails = [
   {
     icon: Mail,
     label: "Email us",
-    value: "hello@boardly.app",
-    href: "mailto:hello@boardly.app",
+    value: "info@proboardive.com",
+    href: "mailto:info@proboardive.com",
   },
   {
     icon: MessageSquare,
@@ -157,8 +153,8 @@ export default function ContactPage() {
 
                 <p className="text-xs text-center text-muted-foreground">
                   Or email us directly at{" "}
-                  <a href="mailto:hello@boardly.app" className="text-primary hover:underline">
-                    hello@boardly.app
+                  <a href="mailto:info@proboardive.com" className="text-primary hover:underline">
+                    info@proboardive.com
                   </a>
                 </p>
               </form>
